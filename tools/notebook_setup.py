@@ -130,8 +130,12 @@ def apply_plot_style(extra_params: dict | None = None) -> None:
     plt.rcParams.update(params)
 
 
+DEFAULT_BGS_MATCHED_CATALOG = "bgs_clus_RM_gal_matched_with_geoFrac_lfweight.pickle"
+FALLBACK_BGS_MATCHED_CATALOG = "bgs_clus_RM_gal_matched.pickle"
+
+
 def load_bgs_matched_catalog(
-    filename: str = "bgs_clus_RM_gal_matched.pickle",
+    filename: str | None = None,
     catalog_dir: str | Path | None = None,
 ):
     """
@@ -149,7 +153,22 @@ def load_bgs_matched_catalog(
             )
         catalog_dir = data_dir()
 
+    if filename is None:
+        filename = DEFAULT_BGS_MATCHED_CATALOG
+
     path = Path(catalog_dir) / filename
+    if not path.exists() and filename == DEFAULT_BGS_MATCHED_CATALOG:
+        fallback = Path(catalog_dir) / FALLBACK_BGS_MATCHED_CATALOG
+        if fallback.exists():
+            warnings.warn(
+                f"LF-weighted catalog {path.name!r} was not found; falling "
+                f"back to {fallback.name!r}. Richnesses will not include "
+                "LF_WEIGHT unless that column exists.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            path = fallback
+
     with path.open("rb") as handle:
         return pickle.load(handle)
 
@@ -251,7 +270,7 @@ def make_z_bins(
 
 
 def prepare_default_richness_inputs(
-    catalog_filename: str = "bgs_clus_RM_gal_matched.pickle",
+    catalog_filename: str | None = None,
     catalog_dir: str | Path | None = None,
     apply_cuts: bool = True,
 ):
