@@ -41,7 +41,7 @@ import astropy.cosmology.units as cu
 import numpy as np
 import pandas as pd
 from astropy.cosmology import Planck18
-from astropy.table import Table, join, unique
+from astropy.table import Table, join, unique, vstack
 from astropy.coordinates import SkyCoord
 from scipy.integrate import quad
 from scipy.spatial import KDTree
@@ -64,10 +64,9 @@ CATALOG_DIR = REPO_ROOT / "catalogs"
 OUTPUT_DIR = CATALOG_DIR
 
 RM_PICKLE = CATALOG_DIR / "RM_SDSS_df.pkl"
-BGS_CATALOG = Path(
-    "/pscratch/sd/z/zwshao/shared_zzhang13/desi/survey/catalogs/Y1/LSS/iron/LSScats/v1.3/"
-) / "BGS_ANY_clustering.dat.fits"
-RANDOM_DIR = Path("/global/cfs/cdirs/desi/survey/catalogs/dr1/LSS/iron/LSScats/v1.5pip")
+BGS_LSSCAT_DIR = Path("/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/jura-v1/LSScats/v0.1")
+BGS_CATALOG = BGS_LSSCAT_DIR / "BGS_BRIGHT_full.dat.fits"
+RANDOM_DIR = BGS_LSSCAT_DIR
 
 MATCHED_NO_GEO_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_no_geoFrac.pickle"
 GEO_PICKLE = OUTPUT_DIR / "rm_cluster_geo_fraction_1p5hmpc.pickle"
@@ -86,6 +85,21 @@ CENTRAL_RADIUS_HMPC = 0.005
 RANDOM_DENSITY_PER_DEG2 = 2500.0
 N_RANDOM_FILES = 18
 RANDOM_PATTERN = "BGS_ANY_{}_full_HPmapcut.ran.fits"
+RANDOM_GLOB_PATTERNS = [
+    "BGS_BRIGHT_*_full.ran.fits",
+    "BGS_ANY_*_full_HPmapcut.ran.fits",
+    "BGS_ANY_*_clustering.ran.fits",
+    "BGS_ANY_*ran*.fits",
+    "BGS_*_*_full_HPmapcut.ran.fits",
+    "BGS_*_*_clustering.ran.fits",
+]
+BGS_DATA_GLOB_PATTERNS = [
+    "BGS_BRIGHT_full.dat.fits",
+    "BGS_ANY_clustering.dat.fits",
+    "BGS_ANY_*_clustering.dat.fits",
+    "BGS_ANY_NGC_clustering.dat.fits",
+    "BGS_ANY_SGC_clustering.dat.fits",
+]
 N_KDTREE_WORKERS = 1
 ADD_LF_WEIGHT_COLUMNS = True
 ADD_SPEC_RICHNESS_COLUMNS = True
@@ -212,9 +226,45 @@ def load_redmapper_catalog(path: Path = RM_PICKLE):
     return rm_clus, rm_gal
 
 
+def discover_files(path: Path, patterns: list[str]) -> list[Path]:
+    """Return FITS files from a file path or directory using candidate patterns."""
+    path = Path(path)
+    if path.is_file():
+        return [path]
+    if not path.exists():
+        raise FileNotFoundError(f"Path does not exist: {path}")
+
+    files: list[Path] = []
+    for pattern in patterns:
+        files.extend(sorted(path.glob(pattern)))
+
+    # Preserve order while removing duplicates introduced by overlapping globs.
+    seen = set()
+    unique_files = []
+    for file_path in files:
+        resolved = str(file_path)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_files.append(file_path)
+    return unique_files
+
+
 def load_bgs_catalog(path: Path = BGS_CATALOG):
-    """Load DESI BGS catalog and standardize key column names."""
-    bgs = Table.read(path)
+    """Load DESI BGS catalog(s) and standardize key column names."""
+    paths = discover_files(path, BGS_DATA_GLOB_PATTERNS)
+    if len(paths) == 0:
+        raise FileNotFoundError(
+            f"No BGS clustering data files found in {path}. "
+            f"Tried patterns: {BGS_DATA_GLOB_PATTERNS}"
+        )
+
+    tables = []
+    for bgs_path in paths:
+        print(f"Reading BGS catalog: {bgs_path}")
+        tables.append(Table.read(bgs_path))
+    bgs = tables[0] if len(tables) == 1 else vstack(tables, metadata_conflicts="silent")
+
     rename_old = ["RA", "DEC", "Z"]
     rename_new = ["RA_BGS", "DEC_BGS", "Z_BGS"]
     if "WEIGHT" in bgs.colnames:
@@ -583,18 +633,35 @@ def attach_redmapper_member_match(
 # Parallel geometric fraction
 # -----------------------------------------------------------------------------
 
-def assigned_random_indices(rank: int, size: int):
-    """Return the random-catalog indices assigned to this MPI rank."""
-    return list(range(N_RANDOM_FILES))[rank::size]
+def discover_random_files(path: Path = RANDOM_DIR) -> list[Path]:
+    """Discover random catalogs for geometric-fraction calculations."""
+    random_files = discover_files(path, RANDOM_GLOB_PATTERNS)
+    if len(random_files) == 0:
+        legacy_files = [
+            Path(path) / RANDOM_PATTERN.format(random_index)
+            for random_index in range(N_RANDOM_FILES)
+            if (Path(path) / RANDOM_PATTERN.format(random_index)).exists()
+        ]
+        random_files = legacy_files
+    if len(random_files) == 0:
+        raise FileNotFoundError(
+            f"No random catalogs found in {path}. "
+            f"Tried patterns: {RANDOM_GLOB_PATTERNS} and {RANDOM_PATTERN}"
+        )
+    return random_files
 
 
-def count_randoms_for_rank(cluster_xyz, aperture_chord_radius, rank: int, size: int):
+def assigned_random_files(random_files: list[Path], rank: int, size: int):
+    """Return the random catalog paths assigned to this MPI rank."""
+    return random_files[rank::size]
+
+
+def count_randoms_for_rank(cluster_xyz, aperture_chord_radius, random_files, rank: int, size: int):
     """Count random points around every cluster for the files assigned to rank."""
     local_counts = np.zeros(len(cluster_xyz), dtype=np.float64)
     local_files_read = 0
 
-    for random_index in assigned_random_indices(rank, size):
-        random_path = RANDOM_DIR / RANDOM_PATTERN.format(random_index)
+    for random_path in assigned_random_files(random_files, rank, size):
         if not random_path.exists():
             mpi_print(rank, f"missing random catalog: {random_path}")
             continue
@@ -656,17 +723,22 @@ def compute_geo_fraction_parallel(rm_clus: Table, comm, rank: int, size: int):
         theta_rad = np.deg2rad(theta_deg)
         aperture_chord_radius = 2.0 * np.sin(0.5 * theta_rad)
         cluster_xyz = spherical_to_cartesian(rm_clus["RA_x"], rm_clus["DEC_x"])
+        random_files = discover_random_files(RANDOM_DIR)
+        print(f"Discovered random catalogs: {len(random_files):,}")
     else:
         aperture_chord_radius = None
         cluster_xyz = None
+        random_files = None
 
     if comm is not None:
         cluster_xyz = comm.bcast(cluster_xyz, root=0)
         aperture_chord_radius = comm.bcast(aperture_chord_radius, root=0)
+        random_files = comm.bcast(random_files, root=0)
 
     local_counts, local_files_read = count_randoms_for_rank(
         cluster_xyz,
         aperture_chord_radius,
+        random_files,
         rank,
         size,
     )
