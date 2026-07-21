@@ -64,7 +64,7 @@ CATALOG_DIR = REPO_ROOT / "catalogs"
 OUTPUT_DIR = CATALOG_DIR
 
 RM_PICKLE = CATALOG_DIR / "RM_SDSS_df.pkl"
-BGS_LSSCAT_DIR = Path("/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/jura-v1/LSScats/v0.1")
+BGS_LSSCAT_DIR = Path("/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSScats/v2.1")
 BGS_CATALOG = BGS_LSSCAT_DIR / "BGS_BRIGHT_full.dat.fits"
 RANDOM_DIR = BGS_LSSCAT_DIR
 
@@ -84,21 +84,12 @@ CENTRAL_RADIUS_HMPC = 0.005
 
 RANDOM_DENSITY_PER_DEG2 = 2500.0
 N_RANDOM_FILES = 18
-RANDOM_PATTERN = "BGS_ANY_{}_full_HPmapcut.ran.fits"
+RANDOM_PATTERN = "BGS_BRIGHT_{}_full.ran.fits"
 RANDOM_GLOB_PATTERNS = [
     "BGS_BRIGHT_*_full.ran.fits",
-    "BGS_ANY_*_full_HPmapcut.ran.fits",
-    "BGS_ANY_*_clustering.ran.fits",
-    "BGS_ANY_*ran*.fits",
-    "BGS_*_*_full_HPmapcut.ran.fits",
-    "BGS_*_*_clustering.ran.fits",
 ]
 BGS_DATA_GLOB_PATTERNS = [
     "BGS_BRIGHT_full.dat.fits",
-    "BGS_ANY_clustering.dat.fits",
-    "BGS_ANY_*_clustering.dat.fits",
-    "BGS_ANY_NGC_clustering.dat.fits",
-    "BGS_ANY_SGC_clustering.dat.fits",
 ]
 N_KDTREE_WORKERS = 1
 ADD_LF_WEIGHT_COLUMNS = True
