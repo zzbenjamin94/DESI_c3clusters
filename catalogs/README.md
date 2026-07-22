@@ -99,8 +99,8 @@ make_catalogs/projection_match_catalogs.py
 Galaxy-level BGS/redMaPPer matched catalog produced by the cleaned projected
 matching workflow. This version uses `RA_central`, `DEC_central`, and
 `Z_SPEC_central` as the cluster center and applies the projected aperture cut directly in
-`h^-1 Mpc`. The same script reads the DA2 BGS Bright catalog
-`BGS_BRIGHT_full.dat.fits`, computes the geometric coverage fraction from
+`h^-1 Mpc`. The same script reads the DA2 BGS Bright noveto catalog
+`BGS_BRIGHT_full_noveto.dat.fits`, computes the geometric coverage fraction from
 `BGS_BRIGHT_*_full.ran.fits` random catalogs in parallel with MPI, applies
 cluster-level luminosity-function weights, and appends spectroscopic-richness
 columns.

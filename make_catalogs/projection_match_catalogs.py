@@ -67,7 +67,7 @@ OUTPUT_DIR = CATALOG_DIR
 
 RM_PICKLE = CATALOG_DIR / "RM_SDSS_df.pkl"
 BGS_LSSCAT_DIR = Path("/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSScats/v2.1")
-BGS_CATALOG = BGS_LSSCAT_DIR / "BGS_BRIGHT_full.dat.fits"
+BGS_CATALOG = BGS_LSSCAT_DIR / "BGS_BRIGHT_full_noveto.dat.fits"
 RANDOM_DIR = BGS_LSSCAT_DIR
 
 MATCHED_NO_GEO_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_no_geometric_fraction.pickle"
@@ -91,7 +91,7 @@ RANDOM_GLOB_PATTERNS = [
     "BGS_BRIGHT_*_full.ran.fits",
 ]
 BGS_DATA_GLOB_PATTERNS = [
-    "BGS_BRIGHT_full.dat.fits",
+    "BGS_BRIGHT_full_noveto.dat.fits",
 ]
 N_KDTREE_WORKERS = 1
 ADD_LF_WEIGHT_COLUMNS = True
@@ -286,7 +286,7 @@ def load_bgs_catalog(path: Path = BGS_CATALOG):
         )
 
     if len(paths) != 1:
-        raise ValueError(f"Expected one DR2 BGS Bright data file, found {len(paths)}: {paths}")
+        raise ValueError(f"Expected one DR2 BGS Bright noveto data file, found {len(paths)}: {paths}")
 
     print(f"Reading BGS catalog: {paths[0]}")
     bgs = Table.read(paths[0])
