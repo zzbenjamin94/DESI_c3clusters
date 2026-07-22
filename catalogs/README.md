@@ -31,7 +31,7 @@ Important columns:
 | `RA_member`, `DEC_member` | redMaPPer member/projected galaxy coordinates | Do not use as cluster centers. Legacy aliases: `RA_y`, `DEC_y`. |
 | `Z_BGS` | BGS galaxy redshift | Galaxy-level quantity. |
 | `TARGETID` | DESI target ID | Galaxy-level identifier. |
-| `flux_*_dered` | dereddened BGS fluxes | Used for magnitudes/colors. |
+| `FLUX_*` | BGS fluxes | DR2/DA2 BGS Bright noveto flux columns; `FLUX_R` is used for r-band magnitudes. |
 
 Cluster-level tables should be made from this table with `unique(..., keys="ID")`
 only when one row per cluster is needed.

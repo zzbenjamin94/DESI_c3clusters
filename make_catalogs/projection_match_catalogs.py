@@ -336,6 +336,11 @@ def load_bgs_catalog(path: Path = BGS_CATALOG):
         "COMP_WEIGHT",
     ]
     optional_keep_cols = [
+        "FLUX_G",
+        "FLUX_R",
+        "FLUX_Z",
+        "FLUX_W1",
+        "FLUX_W2",
         "flux_g_dered",
         "flux_r_dered",
         "flux_z_dered",
