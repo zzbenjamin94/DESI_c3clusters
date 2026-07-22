@@ -130,9 +130,6 @@ srun -n 8 -c 1 python make_catalogs/projection_match_catalogs.py
 Outputs from the same script:
 
 ```text
-catalogs/bgs_clus_RM_gal_matched_no_geometric_fraction.pickle
-catalogs/rm_cluster_geo_fraction_1p5hmpc.pickle
-catalogs/rm_cluster_geo_fraction_1p5hmpc.fits
 catalogs/bgs_clus_RM_gal_matched_with_weights.pickle
 catalogs/bgs_clus_RM_gal_matched_with_weights.fits
 ```

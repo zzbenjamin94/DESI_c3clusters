@@ -70,9 +70,6 @@ BGS_LSSCAT_DIR = Path("/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSS
 BGS_CATALOG = BGS_LSSCAT_DIR / "BGS_BRIGHT_full_noveto.dat.fits"
 RANDOM_DIR = BGS_LSSCAT_DIR
 
-MATCHED_NO_GEO_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_no_geometric_fraction.pickle"
-GEO_PICKLE = OUTPUT_DIR / "rm_cluster_geo_fraction_1p5hmpc.pickle"
-GEO_FITS = OUTPUT_DIR / "rm_cluster_geo_fraction_1p5hmpc.fits"
 OUTPUT_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.pickle"
 OUTPUT_FITS = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.fits"
 LF_SUMMARY_CSV = CATALOG_DIR / "bgs_direct_lf_logL_global_vmax_schechter_fit_summary.csv"
@@ -863,9 +860,6 @@ def main() -> int:
             f"{np.count_nonzero(bgs_matched['RM_gal_flag']):,}"
         )
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        with MATCHED_NO_GEO_PICKLE.open("wb") as handle:
-            pickle.dump(bgs_matched, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        print(f"Saved intermediate matched catalog: {MATCHED_NO_GEO_PICKLE}")
     else:
         rm_clus = None
         bgs_matched = None
@@ -876,12 +870,6 @@ def main() -> int:
     geo = compute_geo_fraction_parallel(rm_clus, comm, rank, size)
 
     if rank == 0:
-        with GEO_PICKLE.open("wb") as handle:
-            pickle.dump(geo, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        geo.write(GEO_FITS, overwrite=True)
-        print(f"Saved cluster geometric fraction: {GEO_PICKLE}")
-        print(f"Saved cluster geometric fraction: {GEO_FITS}")
-
         geo_join = geo[
             [
                 "ID",
