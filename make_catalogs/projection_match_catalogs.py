@@ -14,12 +14,14 @@ columns.
 
 Weight convention:
 
-    IID_WEIGHT       = DESI/BGS fiber-collision/incompleteness weight,
-                       allowed to vary galaxy by galaxy.
-    geoFrac          = cluster-level geometric coverage fraction.
-    GEOMETRIC_WEIGHT = 1 / geoFrac, constant for a given cluster.
+    COMP_WEIGHT      = DESI/BGS completeness weight, 1 / PROB_OBS.
+                       This combines target-observation completeness and
+                       redshift/template success effects represented by
+                       PROB_OBS in the DR2 catalog.
+    GEOMETRIC_FRACTION = cluster-level geometric coverage fraction.
+    GEOMETRIC_WEIGHT = 1 / GEOMETRIC_FRACTION, constant for a given cluster.
     LF_WEIGHT        = cluster-level luminosity-function completeness weight.
-    TOTAL_WEIGHT     = IID_WEIGHT * GEOMETRIC_WEIGHT * LF_WEIGHT.
+    TOTAL_WEIGHT     = COMP_WEIGHT * GEOMETRIC_WEIGHT * LF_WEIGHT.
 
 The geometric coverage fraction is computed with MPI.  Rank 0 performs the
 catalog matching, all ranks read disjoint subsets of random catalogs to count
@@ -41,7 +43,7 @@ import astropy.cosmology.units as cu
 import numpy as np
 import pandas as pd
 from astropy.cosmology import Planck18
-from astropy.table import Table, join, unique, vstack
+from astropy.table import Table, join, unique
 from astropy.coordinates import SkyCoord
 from scipy.integrate import quad
 from scipy.spatial import KDTree
@@ -68,11 +70,11 @@ BGS_LSSCAT_DIR = Path("/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSS
 BGS_CATALOG = BGS_LSSCAT_DIR / "BGS_BRIGHT_full.dat.fits"
 RANDOM_DIR = BGS_LSSCAT_DIR
 
-MATCHED_NO_GEO_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_no_geoFrac.pickle"
+MATCHED_NO_GEO_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_no_geometric_fraction.pickle"
 GEO_PICKLE = OUTPUT_DIR / "rm_cluster_geo_fraction_1p5hmpc.pickle"
 GEO_FITS = OUTPUT_DIR / "rm_cluster_geo_fraction_1p5hmpc.fits"
-OUTPUT_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_geoFrac_lfweight.pickle"
-OUTPUT_FITS = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_geoFrac_lfweight.fits"
+OUTPUT_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.pickle"
+OUTPUT_FITS = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.fits"
 LF_SUMMARY_CSV = CATALOG_DIR / "bgs_direct_lf_logL_global_vmax_schechter_fit_summary.csv"
 
 Z_MIN = 0.0
@@ -98,7 +100,7 @@ ADD_SPEC_RICHNESS_COLUMNS = True
 R_MAG_LIMIT = 19.5
 REFERENCE_Z = 0.1
 LOG_L_MIN_FIT = 9.0
-M_SUN_R_AB = 4.76
+M_SUN_R_AB = 4.64
 
 COSMO = Planck18
 H = COSMO.H0.value / 100.0
@@ -178,15 +180,27 @@ def read_pickle_table(path: Path) -> Table:
     return Table(obj)
 
 
+def table_col(table: Table, preferred: str, *fallbacks: str) -> str:
+    """Return the first available column name from preferred/fallback choices."""
+    for col in (preferred, *fallbacks):
+        if col in table.colnames:
+            return col
+    choices = ", ".join(repr(col) for col in (preferred, *fallbacks))
+    raise KeyError(f"Missing required column. Tried: {choices}")
+
+
 def load_redmapper_catalog(path: Path = RM_PICKLE):
     """Load redMaPPer table and split it into cluster and member tables."""
     rm_data = read_pickle_table(path)
 
+    z_central_col = table_col(rm_data, "Z_SPEC_central", "Z_SPEC_x")
+    z_member_col = table_col(rm_data, "Z_SPEC_member", "Z_SPEC_y")
+
     good = (
-        np.isfinite(np.asarray(rm_data["Z_SPEC_x"], dtype=float))
-        & (rm_data["Z_SPEC_x"] > Z_MIN)
-        & (rm_data["Z_SPEC_x"] < Z_MAX)
-        & (rm_data["Z_SPEC_y"] != rm_data["Z_SPEC_x"])
+        np.isfinite(np.asarray(rm_data[z_central_col], dtype=float))
+        & (rm_data[z_central_col] > Z_MIN)
+        & (rm_data[z_central_col] < Z_MAX)
+        & (rm_data[z_member_col] != rm_data[z_central_col])
     )
     rm_data = rm_data[good]
 
@@ -195,25 +209,46 @@ def load_redmapper_catalog(path: Path = RM_PICKLE):
         "LAMBDA",
         "Z_LAMBDA",
         "R_LAMBDA",
-        "Z_SPEC_x",
-        "RA_x",
-        "DEC_x",
-        "MODEL_MAG_R_x",
-        "MODEL_MAGERR_R_x",
+        table_col(rm_data, "Z_SPEC_central", "Z_SPEC_x"),
+        table_col(rm_data, "RA_central", "RA_x"),
+        table_col(rm_data, "DEC_central", "DEC_x"),
+        table_col(rm_data, "MODEL_MAG_R_central", "MODEL_MAG_R_x"),
+        table_col(rm_data, "MODEL_MAGERR_R_central", "MODEL_MAGERR_R_x"),
     ]
     member_cols = [
         "ID",
-        "Z_SPEC_y",
-        "RA_y",
-        "DEC_y",
-        "R",
-        "P",
-        "MODEL_MAG_R_y",
-        "MODEL_MAGERR_R_y",
+        table_col(rm_data, "Z_SPEC_member", "Z_SPEC_y"),
+        table_col(rm_data, "RA_member", "RA_y"),
+        table_col(rm_data, "DEC_member", "DEC_y"),
+        table_col(rm_data, "R_member", "R"),
+        table_col(rm_data, "P_member", "P"),
+        table_col(rm_data, "MODEL_MAG_R_member", "MODEL_MAG_R_y"),
+        table_col(rm_data, "MODEL_MAGERR_R_member", "MODEL_MAGERR_R_y"),
     ]
+    cluster_cols = list(dict.fromkeys(cluster_cols))
+    member_cols = list(dict.fromkeys(member_cols))
 
     rm_clus = unique(rm_data[cluster_cols], keys="ID")
     rm_gal = rm_data[member_cols]
+
+    rename_map = {
+        "Z_SPEC_x": "Z_SPEC_central",
+        "RA_x": "RA_central",
+        "DEC_x": "DEC_central",
+        "MODEL_MAG_R_x": "MODEL_MAG_R_central",
+        "MODEL_MAGERR_R_x": "MODEL_MAGERR_R_central",
+        "Z_SPEC_y": "Z_SPEC_member",
+        "RA_y": "RA_member",
+        "DEC_y": "DEC_member",
+        "R": "R_member",
+        "P": "P_member",
+        "MODEL_MAG_R_y": "MODEL_MAG_R_member",
+        "MODEL_MAGERR_R_y": "MODEL_MAGERR_R_member",
+    }
+    for table in (rm_clus, rm_gal):
+        for old, new in rename_map.items():
+            if old in table.colnames and new not in table.colnames:
+                table.rename_column(old, new)
     return rm_clus, rm_gal
 
 
@@ -250,24 +285,36 @@ def load_bgs_catalog(path: Path = BGS_CATALOG):
             f"Tried patterns: {BGS_DATA_GLOB_PATTERNS}"
         )
 
-    tables = []
-    for bgs_path in paths:
-        print(f"Reading BGS catalog: {bgs_path}")
-        tables.append(Table.read(bgs_path))
-    bgs = tables[0] if len(tables) == 1 else vstack(tables, metadata_conflicts="silent")
+    if len(paths) != 1:
+        raise ValueError(f"Expected one DR2 BGS Bright data file, found {len(paths)}: {paths}")
 
-    rename_old = ["RA", "DEC", "Z"]
-    rename_new = ["RA_BGS", "DEC_BGS", "Z_BGS"]
-    if "WEIGHT" in bgs.colnames:
-        rename_old.append("WEIGHT")
-        rename_new.append("IID_WEIGHT")
-    bgs.rename_columns(rename_old, rename_new)
+    print(f"Reading BGS catalog: {paths[0]}")
+    bgs = Table.read(paths[0])
+
+    rename_pairs = [
+        ("RA", "RA_BGS"),
+        ("DEC", "DEC_BGS"),
+        ("Z", "Z_BGS"),
+    ]
+    for old, new in rename_pairs:
+        if old in bgs.colnames and new not in bgs.colnames:
+            bgs.rename_column(old, new)
+
+    if "PROB_OBS" not in bgs.colnames:
+        raise KeyError("DR2 BGS catalog must contain PROB_OBS.")
+    prob_obs = np.asarray(bgs["PROB_OBS"], dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        comp_weight = 1.0 / prob_obs
+    comp_weight[~np.isfinite(comp_weight) | (comp_weight <= 0)] = 0.0
+    bgs["COMP_WEIGHT"] = comp_weight
+
     keep_cols = [
         "TARGETID",
         "RA_BGS",
         "DEC_BGS",
         "Z_BGS",
-        "IID_WEIGHT",
+        "PROB_OBS",
+        "COMP_WEIGHT",
         "flux_g_dered",
         "flux_r_dered",
         "flux_z_dered",
@@ -279,22 +326,32 @@ def load_bgs_catalog(path: Path = BGS_CATALOG):
 
 def add_weight_columns(table: Table) -> Table:
     """
-    Add explicit IID, geometric, LF, and total weight columns.
+    Add explicit completeness, geometric, LF, and total weight columns.
 
-    ``geoFrac`` and ``LF_WEIGHT`` are cluster-level quantities.  This function
-    assumes they have already been joined onto each galaxy row by ``ID``.  If no
-    LF correction has been computed yet, ``LF_WEIGHT`` defaults to 1.
+    ``GEOMETRIC_FRACTION`` and ``LF_WEIGHT`` are cluster-level quantities.  This
+    function assumes they have already been joined onto each galaxy row by
+    ``ID``.  If no LF correction has been computed yet, ``LF_WEIGHT`` defaults
+    to 1.
     """
     out = table.copy()
 
-    if "IID_WEIGHT" not in out.colnames:
-        if "WEIGHT" in out.colnames:
-            out["IID_WEIGHT"] = np.asarray(out["WEIGHT"], dtype=float)
+    if "COMP_WEIGHT" not in out.colnames:
+        if "PROB_OBS" in out.colnames:
+            prob_obs = np.asarray(out["PROB_OBS"], dtype=float)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                out["COMP_WEIGHT"] = 1.0 / prob_obs
+        elif "IID_WEIGHT" in out.colnames:
+            out["COMP_WEIGHT"] = np.asarray(out["IID_WEIGHT"], dtype=float)
+        elif "WEIGHT" in out.colnames:
+            out["COMP_WEIGHT"] = np.asarray(out["WEIGHT"], dtype=float)
         else:
-            out["IID_WEIGHT"] = np.ones(len(out), dtype=float)
+            out["COMP_WEIGHT"] = np.ones(len(out), dtype=float)
 
-    if "geoFrac" not in out.colnames:
-        out["geoFrac"] = np.ones(len(out), dtype=float)
+    if "GEOMETRIC_FRACTION" not in out.colnames:
+        if "geoFrac" in out.colnames:
+            out["GEOMETRIC_FRACTION"] = np.asarray(out["geoFrac"], dtype=float)
+        else:
+            out["GEOMETRIC_FRACTION"] = np.ones(len(out), dtype=float)
 
     if "LF_WEIGHT" not in out.colnames:
         if "lf_weight" in out.colnames:
@@ -302,13 +359,14 @@ def add_weight_columns(table: Table) -> Table:
         else:
             out["LF_WEIGHT"] = np.ones(len(out), dtype=float)
 
-    iid = np.asarray(out["IID_WEIGHT"], dtype=float)
-    geo = np.asarray(out["geoFrac"], dtype=float)
+    comp = np.asarray(out["COMP_WEIGHT"], dtype=float)
+    geo = np.asarray(out["GEOMETRIC_FRACTION"], dtype=float)
     lf = np.asarray(out["LF_WEIGHT"], dtype=float)
+    comp[~np.isfinite(comp) | (comp <= 0)] = 0.0
 
     with np.errstate(divide="ignore", invalid="ignore"):
         geometric_weight = 1.0 / geo
-        total_weight = iid * geometric_weight * lf
+        total_weight = comp * geometric_weight * lf
 
     geometric_weight[~np.isfinite(geometric_weight)] = 0.0
     total_weight[~np.isfinite(total_weight)] = 0.0
@@ -409,7 +467,7 @@ def add_lf_weight_columns(table: Table, lf_summary_csv: Path = LF_SUMMARY_CSV) -
     The LF factor is cluster-level: all galaxies in the same redMaPPer cluster
     receive the same ``LF_WEIGHT``.  After joining the LF table, this recomputes
     ``GEOMETRIC_WEIGHT`` and ``TOTAL_WEIGHT`` so the final total weight includes
-    IID, geometry, and LF corrections.
+    completeness, geometry, and LF corrections.
     """
     if not ADD_LF_WEIGHT_COLUMNS:
         return add_weight_columns(table)
@@ -423,12 +481,11 @@ def add_lf_weight_columns(table: Table, lf_summary_csv: Path = LF_SUMMARY_CSV) -
     out = table.copy()
     if "ID" not in out.colnames:
         raise KeyError("Input catalog must contain an 'ID' column.")
-    if "Z_SPEC_x" not in out.colnames:
-        raise KeyError("Input catalog must contain 'Z_SPEC_x' for cluster-level LF weights.")
+    z_central_col = table_col(out, "Z_SPEC_central", "Z_SPEC_x")
 
     lf_params = read_lf_fit_summary(lf_summary_csv)
-    cluster_table = unique(out[["ID", "Z_SPEC_x"]], keys="ID")
-    z_cluster = np.asarray(cluster_table["Z_SPEC_x"], dtype=float)
+    cluster_table = unique(out[["ID", z_central_col]], keys="ID")
+    z_cluster = np.asarray(cluster_table[z_central_col], dtype=float)
 
     logL_lim = magnitude_limit_to_logL(z_cluster, R_MAG_LIMIT)
     logL_ref_raw = magnitude_limit_to_logL(REFERENCE_Z, R_MAG_LIMIT)
@@ -524,10 +581,10 @@ def match_bgs_to_clusters_projected(
     3. Keep pairs with R_perp < aperture_hmpc.
     4. Apply a broad redshift-difference sanity cut.
     """
-    rm_coord = SkyCoord(ra=rm_clus["RA_x"] * u.deg, dec=rm_clus["DEC_x"] * u.deg)
+    rm_coord = SkyCoord(ra=rm_clus["RA_central"] * u.deg, dec=rm_clus["DEC_central"] * u.deg)
     bgs_coord = SkyCoord(ra=bgs["RA_BGS"] * u.deg, dec=bgs["DEC_BGS"] * u.deg)
 
-    theta_deg = angular_radius_deg_from_hmpc(aperture_hmpc, rm_clus["Z_SPEC_x"])
+    theta_deg = angular_radius_deg_from_hmpc(aperture_hmpc, rm_clus["Z_SPEC_central"])
     max_theta = np.nanmax(theta_deg) * u.deg
     print(f"Angular preselection radius: {max_theta.to(u.arcmin):.3f}")
 
@@ -540,9 +597,9 @@ def match_bgs_to_clusters_projected(
     bgs_pair = bgs[idx_bgs]
 
     rproj_hmpc = projected_radius_hmpc(
-        rm_pair["RA_x"],
-        rm_pair["DEC_x"],
-        rm_pair["Z_SPEC_x"],
+        rm_pair["RA_central"],
+        rm_pair["DEC_central"],
+        rm_pair["Z_SPEC_central"],
         bgs_pair["RA_BGS"],
         bgs_pair["DEC_BGS"],
     )
@@ -552,7 +609,7 @@ def match_bgs_to_clusters_projected(
     bgs_pair = bgs_pair[keep_radius]
     rproj_hmpc = rproj_hmpc[keep_radius]
 
-    dz = (bgs_pair["Z_BGS"] - rm_pair["Z_SPEC_x"]) / (1.0 + rm_pair["Z_SPEC_x"])
+    dz = (bgs_pair["Z_BGS"] - rm_pair["Z_SPEC_central"]) / (1.0 + rm_pair["Z_SPEC_central"])
     keep_dz = np.isfinite(dz) & (np.abs(dz) <= dz_abs_max)
 
     rm_pair = rm_pair[keep_dz]
@@ -593,7 +650,7 @@ def attach_redmapper_member_match(
     if len(out) == 0 or len(rm_gal) == 0:
         return out
 
-    rm_coord = SkyCoord(ra=rm_gal["RA_y"] * u.deg, dec=rm_gal["DEC_y"] * u.deg)
+    rm_coord = SkyCoord(ra=rm_gal["RA_member"] * u.deg, dec=rm_gal["DEC_member"] * u.deg)
     bgs_coord = SkyCoord(ra=out["RA_BGS"] * u.deg, dec=out["DEC_BGS"] * u.deg)
     idx_rm, idx_bgs, d2d, _ = bgs_coord.search_around_sky(rm_coord, max_sep)
 
@@ -678,7 +735,7 @@ def count_randoms_for_rank(cluster_xyz, aperture_chord_radius, random_files, ran
 
 def build_geo_table(rm_clus: Table, total_counts, n_files_read: int) -> Table:
     """Build a cluster-level geometric-fraction table."""
-    theta_deg = angular_radius_deg_from_hmpc(PROJECTED_APERTURE_HMPC, rm_clus["Z_SPEC_x"])
+    theta_deg = angular_radius_deg_from_hmpc(PROJECTED_APERTURE_HMPC, rm_clus["Z_SPEC_central"])
     area_deg2 = np.pi * theta_deg**2
     expected_per_file = area_deg2 * RANDOM_DENSITY_PER_DEG2
     expected_total = expected_per_file * n_files_read
@@ -689,15 +746,15 @@ def build_geo_table(rm_clus: Table, total_counts, n_files_read: int) -> Table:
 
     out = Table()
     out["ID"] = rm_clus["ID"]
-    out["RA_x"] = rm_clus["RA_x"]
-    out["DEC_x"] = rm_clus["DEC_x"]
-    out["Z_SPEC_x"] = rm_clus["Z_SPEC_x"]
+    out["RA_central"] = rm_clus["RA_central"]
+    out["DEC_central"] = rm_clus["DEC_central"]
+    out["Z_SPEC_central"] = rm_clus["Z_SPEC_central"]
     out["angRad_deg"] = theta_deg
     out["sq_deg"] = area_deg2
     out[f"Nr_{PROJECTED_APERTURE_HMPC:g}hmpc_expected_per_file"] = expected_per_file
     out["N_random_total"] = total_counts
-    out["N_random_files_geoFrac"] = n_files_read
-    out["geoFrac"] = geo_frac
+    out["N_random_files_GEOMETRIC_FRACTION"] = n_files_read
+    out["GEOMETRIC_FRACTION"] = geo_frac
     return out
 
 
@@ -710,10 +767,10 @@ def compute_geo_fraction_parallel(rm_clus: Table, comm, rank: int, size: int):
     counts and converts them into a footprint fraction.
     """
     if rank == 0:
-        theta_deg = angular_radius_deg_from_hmpc(PROJECTED_APERTURE_HMPC, rm_clus["Z_SPEC_x"])
+        theta_deg = angular_radius_deg_from_hmpc(PROJECTED_APERTURE_HMPC, rm_clus["Z_SPEC_central"])
         theta_rad = np.deg2rad(theta_deg)
         aperture_chord_radius = 2.0 * np.sin(0.5 * theta_rad)
-        cluster_xyz = spherical_to_cartesian(rm_clus["RA_x"], rm_clus["DEC_x"])
+        cluster_xyz = spherical_to_cartesian(rm_clus["RA_central"], rm_clus["DEC_central"])
         random_files = discover_random_files(RANDOM_DIR)
         print(f"Discovered random catalogs: {len(random_files):,}")
     else:
@@ -805,14 +862,14 @@ def main() -> int:
                 "sq_deg",
                 f"Nr_{PROJECTED_APERTURE_HMPC:g}hmpc_expected_per_file",
                 "N_random_total",
-                "N_random_files_geoFrac",
-                "geoFrac",
+                "N_random_files_GEOMETRIC_FRACTION",
+                "GEOMETRIC_FRACTION",
             ]
         ]
         bgs_matched = join(bgs_matched, geo_join, keys="ID", join_type="left")
-        geo_values = np.asarray(bgs_matched["geoFrac"], dtype=float)
+        geo_values = np.asarray(bgs_matched["GEOMETRIC_FRACTION"], dtype=float)
         n_missing_geo = np.count_nonzero(~np.isfinite(geo_values))
-        print(f"Rows missing geoFrac after join: {n_missing_geo:,}")
+        print(f"Rows missing GEOMETRIC_FRACTION after join: {n_missing_geo:,}")
         print("Applying cluster-level LF weights and recomputing TOTAL_WEIGHT")
         bgs_matched = add_lf_weight_columns(bgs_matched)
         print(

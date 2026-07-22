@@ -50,7 +50,8 @@ It outputs val of NAN if zDiff are outside the bounds of binBoundaries.
 Input:
 binCent: center of the bins
 table: Astropy table of format bgs_matched. The cuts are performed outside the function. 
-Table should contain columns 'Z_BGS', 'Z_SPEC_x' (BCG redshift)
+Table should contain columns 'Z_BGS' and either 'Z_SPEC_central' or the
+legacy 'Z_SPEC_x' BCG redshift column.
 numCount (bool): if False outputs the normalized pdf; if true outputs the number count per bin
 
 Output:
@@ -131,7 +132,8 @@ Outputs the continuum, considered to be the excess probability for np.abs(dz) > 
 Parameters:
 binBoundaries: list of bin edges
 table: Astropy table of format bgs_matched. The cuts are performed outside the function. 
-The table should contain columns 'Z_BGS', 'Z_SPEC_x' (BCG redshift)
+The table should contain columns 'Z_BGS' and either 'Z_SPEC_central' or the
+legacy 'Z_SPEC_x' BCG redshift column.
 binCent: center of the bins
 
 Returns:
@@ -157,14 +159,16 @@ def calc_total_galaxy_weight(table, weight_col="TOTAL_WEIGHT"):
 
     New catalogs should provide ``TOTAL_WEIGHT``:
 
-        TOTAL_WEIGHT = IID_WEIGHT * GEOMETRIC_WEIGHT * LF_WEIGHT
+        TOTAL_WEIGHT = COMP_WEIGHT * GEOMETRIC_WEIGHT * LF_WEIGHT
 
-    where ``IID_WEIGHT`` is the DESI/BGS fiber-collision correction,
-    ``GEOMETRIC_WEIGHT = 1 / geoFrac``, and ``LF_WEIGHT`` is the cluster-level
-    luminosity-function completeness correction.
+    where ``COMP_WEIGHT = 1 / PROB_OBS`` is the DESI/BGS completeness
+    correction, ``GEOMETRIC_WEIGHT = 1 / GEOMETRIC_FRACTION``, and
+    ``LF_WEIGHT`` is the cluster-level luminosity-function completeness
+    correction.
 
     For older catalogs, this falls back to ``IID_WEIGHT`` or ``WEIGHT``,
-    multiplied by ``1/geoFrac`` and by ``LF_WEIGHT`` if those columns exist.
+    multiplied by the available geometric correction and by ``LF_WEIGHT`` if
+    those columns exist.
     """
     names = table.colnames if hasattr(table, "colnames") else table.columns
     if weight_col is not None and weight_col in names:
@@ -172,14 +176,22 @@ def calc_total_galaxy_weight(table, weight_col="TOTAL_WEIGHT"):
         total_weight[~np.isfinite(total_weight)] = 0.0
         return total_weight
 
-    if "IID_WEIGHT" in names:
-        iid = np.asarray(table["IID_WEIGHT"], dtype=float)
+    if "COMP_WEIGHT" in names:
+        comp = np.asarray(table["COMP_WEIGHT"], dtype=float)
+    elif "PROB_OBS" in names:
+        prob_obs = np.asarray(table["PROB_OBS"], dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            comp = 1.0 / prob_obs
+    elif "IID_WEIGHT" in names:
+        comp = np.asarray(table["IID_WEIGHT"], dtype=float)
     elif "WEIGHT" in names:
-        iid = np.asarray(table["WEIGHT"], dtype=float)
+        comp = np.asarray(table["WEIGHT"], dtype=float)
     else:
-        iid = np.ones(len(table), dtype=float)
+        comp = np.ones(len(table), dtype=float)
 
-    if "geoFrac" in names:
+    if "GEOMETRIC_FRACTION" in names:
+        geo = np.asarray(table["GEOMETRIC_FRACTION"], dtype=float)
+    elif "geoFrac" in names:
         geo = np.asarray(table["geoFrac"], dtype=float)
     else:
         geo = np.ones(len(table), dtype=float)
@@ -192,7 +204,7 @@ def calc_total_galaxy_weight(table, weight_col="TOTAL_WEIGHT"):
         lf = np.ones(len(table), dtype=float)
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        total_weight = iid * lf / geo
+        total_weight = comp * lf / geo
 
     total_weight[~np.isfinite(total_weight)] = 0.0
     return total_weight
@@ -201,10 +213,10 @@ def calc_total_galaxy_weight(table, weight_col="TOTAL_WEIGHT"):
 '''
 Calculates the mean richness weight in each redshift-difference bin.
 
-``IID_WEIGHT`` computes the IID/fiber weight. ``GEOMETRIC_WEIGHT`` is the
-geometric coverage correction, and ``LF_WEIGHT`` is the cluster-level
-luminosity-function correction. New catalogs combine these into
-``TOTAL_WEIGHT``. Returns 0 if there are no galaxies inside that bin.
+``COMP_WEIGHT`` computes the DESI completeness weight from ``PROB_OBS``.
+``GEOMETRIC_WEIGHT`` is the geometric coverage correction, and ``LF_WEIGHT`` is
+the cluster-level luminosity-function correction. New catalogs combine these
+into ``TOTAL_WEIGHT``. Returns 0 if there are no galaxies inside that bin.
 '''
 
 def calc_weights_all(binBoundaries, table, numCount_bool=False, weight_col="TOTAL_WEIGHT"):
