@@ -276,6 +276,25 @@ def discover_files(path: Path, patterns: list[str]) -> list[Path]:
     return unique_files
 
 
+def standardize_column_name(table: Table, canonical: str, candidates: list[str], required: bool = True):
+    """Rename the first available candidate column to a canonical name."""
+    if canonical in table.colnames:
+        return canonical
+
+    for candidate in candidates:
+        if candidate in table.colnames:
+            table.rename_column(candidate, canonical)
+            return canonical
+
+    if required:
+        preview = ", ".join(table.colnames[:80])
+        raise KeyError(
+            f"Could not find required column {canonical!r}. "
+            f"Tried candidates: {candidates}. Available columns begin with: {preview}"
+        )
+    return None
+
+
 def load_bgs_catalog(path: Path = BGS_CATALOG):
     """Load DESI BGS catalog(s) and standardize key column names."""
     paths = discover_files(path, BGS_DATA_GLOB_PATTERNS)
@@ -291,14 +310,14 @@ def load_bgs_catalog(path: Path = BGS_CATALOG):
     print(f"Reading BGS catalog: {paths[0]}")
     bgs = Table.read(paths[0])
 
-    rename_pairs = [
-        ("RA", "RA_BGS"),
-        ("DEC", "DEC_BGS"),
-        ("Z", "Z_BGS"),
-    ]
-    for old, new in rename_pairs:
-        if old in bgs.colnames and new not in bgs.colnames:
-            bgs.rename_column(old, new)
+    standardize_column_name(bgs, "RA_BGS", ["RA", "TARGET_RA"])
+    standardize_column_name(bgs, "DEC_BGS", ["DEC", "TARGET_DEC"])
+    standardize_column_name(
+        bgs,
+        "Z_BGS",
+        ["Z", "Z_not4clus", "Z_NOT4CLUS", "Z_COSMO", "Z_RR", "Z_DESI"],
+    )
+    standardize_column_name(bgs, "TARGETID", ["TARGETID", "TARGET_ID"])
 
     if "PROB_OBS" not in bgs.colnames:
         raise KeyError("DR2 BGS catalog must contain PROB_OBS.")
@@ -308,19 +327,22 @@ def load_bgs_catalog(path: Path = BGS_CATALOG):
     comp_weight[~np.isfinite(comp_weight) | (comp_weight <= 0)] = 0.0
     bgs["COMP_WEIGHT"] = comp_weight
 
-    keep_cols = [
+    required_keep_cols = [
         "TARGETID",
         "RA_BGS",
         "DEC_BGS",
         "Z_BGS",
         "PROB_OBS",
         "COMP_WEIGHT",
+    ]
+    optional_keep_cols = [
         "flux_g_dered",
         "flux_r_dered",
         "flux_z_dered",
         "flux_w1_dered",
         "flux_w2_dered",
     ]
+    keep_cols = required_keep_cols + [col for col in optional_keep_cols if col in bgs.colnames]
     return bgs[keep_cols]
 
 
