@@ -134,6 +134,35 @@ catalogs/bgs_clus_RM_gal_matched_with_weights.pickle
 catalogs/bgs_clus_RM_gal_matched_with_weights.fits
 ```
 
+### DR2 validation before a production run
+
+Run the synthetic tests from the repository root. These tests use small tables
+with known answers and do not access the NERSC survey filesystem:
+
+```bash
+python -m unittest -v tests/test_dr2_catalog_pipeline.py
+```
+
+On NERSC, inspect a spread sample from the real DR2 data catalog and the first
+three random catalogs:
+
+```bash
+python make_catalogs/validate_dr2_catalogs.py
+```
+
+After the sampled validation passes, scan every row of the BGS data catalog and
+all random-catalog headers/coordinate samples:
+
+```bash
+python make_catalogs/validate_dr2_catalogs.py \
+  --full-data-scan \
+  --max-random-files 0
+```
+
+The validator exits with status 1 if a required file, column, or physical-range
+check fails. Warnings identify conditions that merit inspection but do not by
+themselves stop the workflow.
+
 Important added columns:
 
 | Column | Meaning | Notes |
