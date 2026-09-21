@@ -232,7 +232,10 @@ def calc_weights_all(binBoundaries, table, numCount_bool=False, weight_col="TOTA
 
     for i in range(len(bin_edges)-1):
         bin_low = bin_edges[i]; bin_high = bin_edges[i+1];
-        filt = np.where((z_diff >= bin_low) & (z_diff < bin_high))
+        if i == len(bin_edges) - 2:
+            filt = np.where((z_diff >= bin_low) & (z_diff <= bin_high))
+        else:
+            filt = np.where((z_diff >= bin_low) & (z_diff < bin_high))
         curTable = table[filt] 
         if len(filt[0]) > 0:
             curWeight = np.mean(total_weight[filt])

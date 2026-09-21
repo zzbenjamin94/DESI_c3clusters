@@ -23,7 +23,6 @@ notebooks the usual names: ``np``, ``pd``, ``plt``, ``Table``, ``stats``, etc.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
 import importlib
 import os
 from pathlib import Path
@@ -60,10 +59,21 @@ from astropy.cosmology import z_at_value
 cosmo = Planck18
 
 import sys
-sys.path.append("/global/homes/z/zzhang13/DESI")
+REPO_ROOT = Path("/global/homes/z/zzhang13/DESI/Projection")
+if not REPO_ROOT.exists():
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 from setup import *
 ## Functions for computing spectroscopic richness and profiles
 from tools.projection_functions import *
+from tools.richness_selection import (
+    BCG_Z_BIN_EDGES,
+    RedshiftOffsetBins,
+    make_redshift_offset_bins,
+    make_z_bins as _make_analysis_z_bins,
+    select_richness_analysis_sample,
+)
 
 
 def _optional_import(module_name: str, alias: str | None = None):
@@ -112,15 +122,6 @@ PLOT_PARAMS = {
 }
 
 
-@dataclass(frozen=True)
-class RedshiftOffsetBins:
-    bin_boundaries: np.ndarray
-    bin_centers: np.ndarray
-    bin_widths: np.ndarray
-    micro_bin_boundaries: np.ndarray
-    micro_bin_centers: np.ndarray
-
-
 def apply_plot_style(extra_params: dict | None = None) -> None:
     """Apply the plotting style used by the richness notebooks."""
 
@@ -130,8 +131,10 @@ def apply_plot_style(extra_params: dict | None = None) -> None:
     plt.rcParams.update(params)
 
 
-DEFAULT_BGS_MATCHED_CATALOG = "bgs_clus_RM_gal_matched_with_geoFrac_lfweight.pickle"
-FALLBACK_BGS_MATCHED_CATALOG = "bgs_clus_RM_gal_matched.pickle"
+DEFAULT_BGS_MATCHED_CATALOG = (
+    "bgs_clus_RM_gal_matched_with_spec_richness_lfweighted.pickle"
+)
+FALLBACK_BGS_MATCHED_CATALOG = "bgs_clus_RM_gal_matched_with_weights.pickle"
 
 
 def load_bgs_matched_catalog(
@@ -175,12 +178,23 @@ def load_bgs_matched_catalog(
 
 def add_dereddened_magnitudes(table):
     """
-    Add ``r_dered``, ``g_dered``, and ``gmr`` columns in-place and return table.
+    Add available dereddened magnitudes in-place and return the table.
+
+    Current DR2 matched catalogs retain the uppercase ``FLUX_R`` column. Older
+    catalogs may instead provide lowercase ``flux_r_dered`` and
+    ``flux_g_dered`` columns.
     """
 
-    table["r_dered"] = 22.5 - 2.5 * np.log10(table["flux_r_dered"])
-    table["g_dered"] = 22.5 - 2.5 * np.log10(table["flux_g_dered"])
-    table["gmr"] = table["g_dered"] - table["r_dered"]
+    names = table.colnames if hasattr(table, "colnames") else table.columns
+    r_flux_col = "FLUX_R" if "FLUX_R" in names else "flux_r_dered"
+    if r_flux_col not in names:
+        raise KeyError("Missing required r-band flux column 'FLUX_R' or 'flux_r_dered'")
+    table["r_dered"] = 22.5 - 2.5 * np.log10(table[r_flux_col])
+
+    g_flux_col = "FLUX_G" if "FLUX_G" in names else "flux_g_dered"
+    if g_flux_col in names:
+        table["g_dered"] = 22.5 - 2.5 * np.log10(table[g_flux_col])
+        table["gmr"] = table["g_dered"] - table["r_dered"]
     return table
 
 
@@ -221,31 +235,6 @@ def apply_default_richness_cuts(
     return table[np.where(mask)]
 
 
-def make_redshift_offset_bins() -> RedshiftOffsetBins:
-    """Return the non-uniform redshift-offset bins used for richness profiles."""
-
-    wide_bin_1 = np.linspace(-0.1, -0.005, 21, endpoint=False)
-    small_bin = np.linspace(-0.005, 0.005, 21, endpoint=False)
-    micro_bin = np.linspace(-0.005, 0.005, 31)
-    wide_bin_2 = np.linspace(0.005, 0.1, 21, endpoint=False)
-
-    bin_boundaries = np.hstack((wide_bin_1, small_bin, wide_bin_2))
-    bin_centers = 0.5 * (bin_boundaries[:-1] + bin_boundaries[1:])
-    bin_widths = np.diff(bin_boundaries)
-    micro_bin_centers = 0.5 * (micro_bin[:-1] + micro_bin[1:])
-
-    assert len(set(bin_centers)) == len(bin_centers), "Overlapping bins"
-    assert len(set(bin_boundaries)) == len(bin_boundaries), "Overlapping bins"
-
-    return RedshiftOffsetBins(
-        bin_boundaries=bin_boundaries,
-        bin_centers=bin_centers,
-        bin_widths=bin_widths,
-        micro_bin_boundaries=micro_bin,
-        micro_bin_centers=micro_bin_centers,
-    )
-
-
 def make_lambda_bins(
     min_lambda: float = 20,
     max_lambda: float = 100,
@@ -262,11 +251,11 @@ def make_lambda_bins(
 
 
 def make_z_bins(
-    edges: tuple[float, ...] = (0.1, 0.2, 0.3, 0.4)
+    edges: tuple[float, ...] = BCG_Z_BIN_EDGES,
 ) -> list[list[float]]:
-    """Return redshift bin pairs."""
+    """Return the shared BCG redshift bin pairs."""
 
-    return [[float(edges[i]), float(edges[i + 1])] for i in range(len(edges) - 1)]
+    return _make_analysis_z_bins(edges)
 
 
 def prepare_default_richness_inputs(
@@ -284,6 +273,8 @@ def prepare_default_richness_inputs(
 
     apply_plot_style()
     bgs_matched = load_bgs_matched_catalog(catalog_filename, catalog_dir=catalog_dir)
+    if apply_cuts:
+        bgs_matched = select_richness_analysis_sample(bgs_matched)
     bgs_matched = add_dereddened_magnitudes(bgs_matched)
     bgs_matched = add_absolute_magnitude(bgs_matched)
     if apply_cuts:

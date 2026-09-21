@@ -102,8 +102,9 @@ matching workflow. This version uses `RA_central`, `DEC_central`, and
 `h^-1 Mpc`. The same script reads the DA2 BGS Bright noveto catalog
 `BGS_BRIGHT_full_noveto.dat.fits`, computes the geometric coverage fraction from
 `BGS_BRIGHT_*_full.ran.fits` random catalogs in parallel with MPI, applies
-cluster-level luminosity-function weights, and appends spectroscopic-richness
-columns.
+cluster-level luminosity-function weights, and retains a broad parent sample.
+It deliberately does not apply the final science redshift cuts or append
+spectroscopic-richness columns.
 
 Important added columns:
 
@@ -132,6 +133,34 @@ Outputs from the same script:
 ```text
 catalogs/bgs_clus_RM_gal_matched_with_weights.pickle
 catalogs/bgs_clus_RM_gal_matched_with_weights.fits
+```
+
+### `bgs_clus_RM_gal_matched_with_spec_richness_lfweighted.pickle`
+
+Generated from the broad parent catalog by:
+
+```bash
+python make_catalogs/postprocess_spectroscopic_richness.py
+```
+
+This postprocessing step applies the analysis selections
+
+```text
+0.10 <= z_BCG < 0.35
+0.05 <= z_BGS < 0.40
+-0.05 <= (z_BGS - z_BCG) / (1 + z_BCG) <= 0.05
+```
+
+and then appends the unweighted and `TOTAL_WEIGHT`-weighted projected and
+continuum-subtracted spectroscopic-richness columns. The broad parent catalog
+is not overwritten. The shared Figure 3 redshift bins are `[0.10, 0.18)`,
+`[0.18, 0.24)`, and `[0.24, 0.35)`.
+
+Outputs:
+
+```text
+catalogs/bgs_clus_RM_gal_matched_with_spec_richness_lfweighted.pickle
+catalogs/bgs_clus_RM_gal_matched_with_spec_richness_lfweighted.fits
 ```
 
 ### DR2 validation before a production run

@@ -18,10 +18,15 @@ import pandas as pd
 from astropy.table import Table
 
 from make_catalogs import projection_match_catalogs as pipeline
+from tools.richness_selection import (
+    make_redshift_offset_bins,
+    make_z_bins,
+    select_richness_analysis_sample,
+)
 
 
 class TestRedmapperCatalogLoading(unittest.TestCase):
-    def test_bcg_redshift_range_is_lower_inclusive_and_upper_exclusive(self):
+    def test_parent_loader_retains_clusters_outside_analysis_redshift_range(self):
         source = Table()
         source["ID"] = [1, 2, 3, 4]
         source["LAMBDA"] = [30.0, 40.0, 50.0, 60.0]
@@ -46,10 +51,52 @@ class TestRedmapperCatalogLoading(unittest.TestCase):
                 pickle.dump(source, handle)
             clusters, members = pipeline.load_redmapper_catalog(path)
 
-        self.assertEqual(list(clusters["ID"]), [2, 3])
-        self.assertEqual(list(members["ID"]), [2, 3])
-        self.assertTrue(np.all(clusters["Z_SPEC_central"] >= pipeline.Z_MIN))
-        self.assertTrue(np.all(clusters["Z_SPEC_central"] < pipeline.Z_MAX))
+        self.assertEqual(list(clusters["ID"]), [1, 2, 3, 4])
+        self.assertEqual(list(members["ID"]), [1, 2, 3, 4])
+
+
+class TestRichnessPostprocessingSelection(unittest.TestCase):
+    def test_science_cuts_are_applied_only_in_postprocessing(self):
+        table = Table()
+        table["ID"] = np.arange(1, 9)
+        table["Z_SPEC_central"] = [
+            0.09,
+            0.10,
+            0.20,
+            0.349,
+            0.35,
+            0.20,
+            0.20,
+            0.20,
+        ]
+        table["Z_BGS"] = [
+            0.09,
+            0.05,
+            0.20,
+            0.399,
+            0.35,
+            0.40,
+            0.27,
+            0.145,
+        ]
+
+        selected = select_richness_analysis_sample(table)
+
+        self.assertEqual(list(selected["ID"]), [2, 3, 4, 8])
+        self.assertIn("DZ_CLUSTER", selected.colnames)
+        self.assertTrue(np.all(np.abs(selected["DZ_CLUSTER"]) <= 0.05))
+
+    def test_shared_redshift_bins_have_the_requested_three_intervals(self):
+        self.assertEqual(
+            make_z_bins(),
+            [[0.10, 0.18], [0.18, 0.24], [0.24, 0.35]],
+        )
+
+    def test_offset_bins_span_exactly_minus_to_plus_point_zero_five(self):
+        bins = make_redshift_offset_bins()
+        self.assertAlmostEqual(float(bins.bin_boundaries[0]), -0.05)
+        self.assertAlmostEqual(float(bins.bin_boundaries[-1]), 0.05)
+        self.assertTrue(np.all(np.diff(bins.bin_boundaries) > 0))
 
 
 class TestDR2CatalogLoading(unittest.TestCase):

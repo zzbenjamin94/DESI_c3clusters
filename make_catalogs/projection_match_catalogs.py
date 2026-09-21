@@ -6,11 +6,13 @@ in a more explicit and safer way.  The main change is that the physical
 aperture cut is applied directly to the candidate redMaPPer/BGS pairs, rather
 than running a second all-to-all 3D search on already-expanded matched arrays.
 
-The intended output is a galaxy-level table with one row per unique
+The intended output is a broad parent galaxy-level table with one row per unique
 redMaPPer-cluster/BGS-galaxy pair.  The table contains BGS columns,
 redMaPPer cluster columns, optional redMaPPer member-galaxy columns, a central
 flag, projected radius, geometric coverage fraction, and explicit weight
-columns.
+columns. Scientific redshift and normalized-offset cuts, and the resulting
+spectroscopic-richness columns, are added by the postprocessing script rather
+than at this matching stage.
 
 Weight convention:
 
@@ -35,7 +37,6 @@ from __future__ import annotations
 
 import pickle
 from pathlib import Path
-import sys
 import warnings
 
 import astropy.units as u
@@ -74,8 +75,6 @@ OUTPUT_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.pickle"
 OUTPUT_FITS = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.fits"
 LF_SUMMARY_CSV = CATALOG_DIR / "bgs_direct_lf_logL_global_vmax_schechter_fit_summary.csv"
 
-Z_MIN = 0.1
-Z_MAX = 0.4
 PROJECTED_APERTURE_HMPC = 1.5
 DZ_ABS_MAX = 0.2
 RM_MEMBER_MATCH_MAX_SEP = 0.1 * u.arcsec
@@ -92,7 +91,6 @@ BGS_DATA_GLOB_PATTERNS = [
 ]
 N_KDTREE_WORKERS = 1
 ADD_LF_WEIGHT_COLUMNS = True
-ADD_SPEC_RICHNESS_COLUMNS = True
 
 R_MAG_LIMIT = 19.5
 REFERENCE_Z = 0.1
@@ -187,16 +185,16 @@ def table_col(table: Table, preferred: str, *fallbacks: str) -> str:
 
 
 def load_redmapper_catalog(path: Path = RM_PICKLE):
-    """Load redMaPPer data in ``Z_MIN <= z_BCG < Z_MAX`` and split its tables."""
+    """Load all technically valid redMaPPer centers and split cluster/member tables."""
     rm_data = read_pickle_table(path)
 
     z_central_col = table_col(rm_data, "Z_SPEC_central", "Z_SPEC_x")
     z_member_col = table_col(rm_data, "Z_SPEC_member", "Z_SPEC_y")
 
+    z_central = np.asarray(rm_data[z_central_col], dtype=float)
     good = (
-        np.isfinite(np.asarray(rm_data[z_central_col], dtype=float))
-        & (rm_data[z_central_col] >= Z_MIN)
-        & (rm_data[z_central_col] < Z_MAX)
+        np.isfinite(z_central)
+        & (z_central > 0.0)
         & (rm_data[z_member_col] != rm_data[z_central_col])
     )
     rm_data = rm_data[good]
@@ -546,44 +544,6 @@ def add_lf_weight_columns(table: Table, lf_summary_csv: Path = LF_SUMMARY_CSV) -
     return add_weight_columns(out)
 
 
-def default_richness_bins():
-    """Return the redshift-difference bins used for spectroscopic richness."""
-    wide_bin_1 = np.linspace(-0.1, -0.005, 21, endpoint=False)
-    small_bin = np.linspace(-0.005, 0.005, 21, endpoint=False)
-    wide_bin_2 = np.linspace(0.005, 0.1, 21, endpoint=False)
-    bin_boundaries = np.hstack((wide_bin_1, small_bin, wide_bin_2))
-    bin_centers = np.asarray(
-        [
-            0.5 * (bin_boundaries[i] + bin_boundaries[i + 1])
-            for i in range(len(bin_boundaries) - 1)
-        ]
-    )
-    if len(set(bin_centers)) != len(bin_centers):
-        raise ValueError("Overlapping richness bin centers")
-    if len(set(bin_boundaries)) != len(bin_boundaries):
-        raise ValueError("Overlapping richness bin boundaries")
-    return bin_boundaries, bin_centers
-
-
-def add_spectroscopic_richness_columns(table: Table) -> Table:
-    """Append lambda_spec_* columns to a matched galaxy-level catalog."""
-    if not ADD_SPEC_RICHNESS_COLUMNS:
-        return table
-
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
-
-    from tools.projection_functions import append_spec_richness_columns
-
-    bin_boundaries, bin_centers = default_richness_bins()
-    return append_spec_richness_columns(
-        table,
-        bin_boundaries,
-        bin_centers,
-        total_weight_col="TOTAL_WEIGHT",
-    )
-
-
 # -----------------------------------------------------------------------------
 # Matching steps
 # -----------------------------------------------------------------------------
@@ -891,15 +851,11 @@ def main() -> int:
             "LF_WEIGHT percentiles: "
             f"{np.nanpercentile(np.asarray(bgs_matched['LF_WEIGHT'], dtype=float), [0, 16, 50, 84, 100])}"
         )
-        if ADD_SPEC_RICHNESS_COLUMNS:
-            print("Computing lambda_spec_proj/noproj richness columns")
-            bgs_matched = add_spectroscopic_richness_columns(bgs_matched)
-
         with OUTPUT_PICKLE.open("wb") as handle:
             pickle.dump(bgs_matched, handle, protocol=pickle.HIGHEST_PROTOCOL)
         bgs_matched.write(OUTPUT_FITS, overwrite=True)
-        print(f"Saved final matched catalog: {OUTPUT_PICKLE}")
-        print(f"Saved final matched catalog: {OUTPUT_FITS}")
+        print(f"Saved broad parent matched catalog: {OUTPUT_PICKLE}")
+        print(f"Saved broad parent matched catalog: {OUTPUT_FITS}")
 
     return 0
 
