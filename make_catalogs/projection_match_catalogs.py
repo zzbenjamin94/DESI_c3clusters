@@ -74,7 +74,7 @@ OUTPUT_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.pickle"
 OUTPUT_FITS = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.fits"
 LF_SUMMARY_CSV = CATALOG_DIR / "bgs_direct_lf_logL_global_vmax_schechter_fit_summary.csv"
 
-Z_MIN = 0.0
+Z_MIN = 0.1
 Z_MAX = 0.4
 PROJECTED_APERTURE_HMPC = 1.5
 DZ_ABS_MAX = 0.2
@@ -187,7 +187,7 @@ def table_col(table: Table, preferred: str, *fallbacks: str) -> str:
 
 
 def load_redmapper_catalog(path: Path = RM_PICKLE):
-    """Load redMaPPer table and split it into cluster and member tables."""
+    """Load redMaPPer data in ``Z_MIN <= z_BCG < Z_MAX`` and split its tables."""
     rm_data = read_pickle_table(path)
 
     z_central_col = table_col(rm_data, "Z_SPEC_central", "Z_SPEC_x")
@@ -195,7 +195,7 @@ def load_redmapper_catalog(path: Path = RM_PICKLE):
 
     good = (
         np.isfinite(np.asarray(rm_data[z_central_col], dtype=float))
-        & (rm_data[z_central_col] > Z_MIN)
+        & (rm_data[z_central_col] >= Z_MIN)
         & (rm_data[z_central_col] < Z_MAX)
         & (rm_data[z_member_col] != rm_data[z_central_col])
     )

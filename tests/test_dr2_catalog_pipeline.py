@@ -8,6 +8,7 @@ answers.
 
 from __future__ import annotations
 
+import pickle
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +18,38 @@ import pandas as pd
 from astropy.table import Table
 
 from make_catalogs import projection_match_catalogs as pipeline
+
+
+class TestRedmapperCatalogLoading(unittest.TestCase):
+    def test_bcg_redshift_range_is_lower_inclusive_and_upper_exclusive(self):
+        source = Table()
+        source["ID"] = [1, 2, 3, 4]
+        source["LAMBDA"] = [30.0, 40.0, 50.0, 60.0]
+        source["Z_LAMBDA"] = [0.09, 0.10, 0.399, 0.40]
+        source["R_LAMBDA"] = [1.0, 1.0, 1.0, 1.0]
+        source["Z_SPEC_central"] = [0.09, 0.10, 0.399, 0.40]
+        source["RA_central"] = [10.0, 20.0, 30.0, 40.0]
+        source["DEC_central"] = [0.0, 1.0, 2.0, 3.0]
+        source["MODEL_MAG_R_central"] = [17.0, 17.0, 17.0, 17.0]
+        source["MODEL_MAGERR_R_central"] = [0.01, 0.01, 0.01, 0.01]
+        source["Z_SPEC_member"] = [0.091, 0.101, 0.398, 0.401]
+        source["RA_member"] = [10.01, 20.01, 30.01, 40.01]
+        source["DEC_member"] = [0.01, 1.01, 2.01, 3.01]
+        source["R_member"] = [0.1, 0.1, 0.1, 0.1]
+        source["P_member"] = [0.9, 0.9, 0.9, 0.9]
+        source["MODEL_MAG_R_member"] = [18.0, 18.0, 18.0, 18.0]
+        source["MODEL_MAGERR_R_member"] = [0.02, 0.02, 0.02, 0.02]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "RM_SDSS_df.pkl"
+            with path.open("wb") as handle:
+                pickle.dump(source, handle)
+            clusters, members = pipeline.load_redmapper_catalog(path)
+
+        self.assertEqual(list(clusters["ID"]), [2, 3])
+        self.assertEqual(list(members["ID"]), [2, 3])
+        self.assertTrue(np.all(clusters["Z_SPEC_central"] >= pipeline.Z_MIN))
+        self.assertTrue(np.all(clusters["Z_SPEC_central"] < pipeline.Z_MAX))
 
 
 class TestDR2CatalogLoading(unittest.TestCase):
