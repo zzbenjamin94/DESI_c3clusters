@@ -21,13 +21,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 import glob
+import warnings
 
 import numpy as np
+from astropy.units import UnitsWarning
 from astropy.table import Table, vstack
 
 
 DEFAULT_DR9_SWEEP_DIR = (
     "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/north/sweep/9.0/"
+)
+DEFAULT_DR9_SWEEP_DIRS = (
+    "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/north/sweep/9.0/",
+    "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/south/sweep/9.0/",
 )
 
 
@@ -103,13 +109,22 @@ def dr9_galaxy_mask(
 
 
 def find_dr9_sweep_files(
-    sweep_dir: str | Path = DEFAULT_DR9_SWEEP_DIR,
+    sweep_dir: str | Path | Iterable[str | Path] = DEFAULT_DR9_SWEEP_DIRS,
     pattern: str = "sweep-*.fits",
 ) -> list[str]:
     """Return sorted DR9 sweep files matching a glob pattern."""
 
-    sweep_dir = Path(sweep_dir)
-    return sorted(glob.glob(str(sweep_dir / pattern)))
+    if isinstance(sweep_dir, (str, Path)):
+        sweep_dirs = [sweep_dir]
+    else:
+        sweep_dirs = list(sweep_dir)
+
+    files = []
+    for one_dir in sweep_dirs:
+        one_dir = Path(one_dir)
+        files.extend(glob.glob(str(one_dir / pattern)))
+        files.extend(glob.glob(str(one_dir / "*" / pattern)))
+    return sorted(files)
 
 
 def read_dr9_sweep_file(
@@ -123,7 +138,13 @@ def read_dr9_sweep_file(
 ) -> Table:
     """Read one DR9 sweep file and return selected photometric galaxies."""
 
-    table = Table.read(filename, hdu=1, memmap=True)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*'1/arcsec\^2' did not parse as fits unit.*",
+            category=UnitsWarning,
+        )
+        table = Table.read(filename, hdu=1, memmap=True)
     mask = dr9_galaxy_mask(
         table,
         r_mag_limit=r_mag_limit,
@@ -147,7 +168,7 @@ def read_dr9_sweep_file(
 
 
 def load_dr9_galaxies(
-    sweep_dir: str | Path = DEFAULT_DR9_SWEEP_DIR,
+    sweep_dir: str | Path | Iterable[str | Path] = DEFAULT_DR9_SWEEP_DIRS,
     pattern: str = "sweep-*.fits",
     max_files: int | None = None,
     r_mag_limit: float | None = 23.5,
