@@ -99,7 +99,7 @@ class TestClusterPreparation(unittest.TestCase):
     def test_existing_parent_without_richness_fails_clearly(self):
         table = self.table()
         table.remove_column("lambda_spec_noproj_weighted")
-        with self.assertRaisesRegex(KeyError, "postprocess"):
+        with self.assertRaisesRegex(KeyError, "lambda_spec_noproj_weighted"):
             prepare(table)
 
 

@@ -12,10 +12,15 @@ galaxy matching, weights, or continuum.
 | `conditional_richness_models.py` | Common likelihoods, priors, conditional CDFs and predictive sampling. |
 | `fit_conditional_richness_mpi.py` | Multi-start optimization, emcee, checkpoints, fit statistics and predictive checks. |
 | `plot_conditional_richness.py` | Reusable plotting functions and terminal entry point; no fitting. |
-| `plot_conditional_richness.ipynb` | Data-only plots by default; optional saved fits, tables and diagnostics. |
+| `plot_conditional_richness.ipynb` | Links to the two focused three-stage weighting notebooks. |
 | `run_conditional_richness.slurm` | One-node, eight-rank NERSC example under account `desi`. |
 
 ## Data-only plots (no fitting)
+
+For the new three-stage weighting comparison with spectroscopic richness on
+the vertical axis, use [the two focused notebooks and preparation workflow](RICHNESS_WEIGHTING_PLOTS.md).
+The commands below describe the earlier single-column conditional-richness
+visualizer; its Python interface is retained for saved-fit compatibility.
 
 Prepare the sample once, then run:
 
@@ -24,8 +29,8 @@ python richness_relation/prepare_conditional_richness.py
 python richness_relation/plot_conditional_richness.py --data-only
 ```
 
-Alternatively, run `plot_conditional_richness.ipynb` with `DATA_ONLY = True`
-(the default). Neither route imports the MCMC runner or reads fit products.
+The Python data-only route does not import the MCMC runner or read fit products.
+The former combined notebook now links to the two focused weighting notebooks.
 Outputs are PNG and PDF files in `plots/conditional_richness/data_only/`:
 
 - `richness_relation_redshift_bins`: individual richnesses and geometric means
@@ -42,7 +47,7 @@ of projection: differences in estimator normalization and selection also matter.
 SEM describes uncertainty in the mean, not cluster-to-cluster scatter, and
 assumes independent clusters. Data-only outputs are separated from fit outputs
 so the notebook cannot accidentally display stale fitted curves or tables.
-Set `DATA_ONLY = False` or omit `--data-only` to display saved model results.
+Omit `--data-only` from the Python command to display saved model results.
 
 ## Input and selection
 
@@ -255,7 +260,7 @@ discrepancies exceeding the observed discrepancy at the SAME posterior draw.
 It is not a classical goodness-of-fit p-value. No nominal chi-squared p-value
 is assigned to an asymmetric/truncated mixture or an in-sample fitted KS test.
 
-Run `plot_conditional_richness.py` or open `plot_conditional_richness.ipynb` to
+Run `plot_conditional_richness.py` to
 regenerate plots without MCMC. Data points summarize mean ln(lambda_RM) at
 binned lambda_spec, exponentiated, with asymmetric transformed log-SEM bars.
 Those bins are only visualization; all individual clusters enter the fits.
