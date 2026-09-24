@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from tools.richness_selection import BCG_Z_RANGE, BCG_Z_BIN_EDGES
 
-DEFAULT_INPUT = REPO_ROOT / "catalogs/bgs_clus_RM_gal_matched_with_spec_richness_lfweighted.pickle"
+DEFAULT_INPUT = REPO_ROOT / "catalogs/bgs_clus_RM_gal_matched_with_weights.fits"
 DEFAULT_OUTPUT = REPO_ROOT / "catalogs/conditional_richness/sample.npz"
 
 
@@ -67,7 +67,8 @@ def prepare(table, spec_col="lambda_spec_noproj_weighted", rm_min=20.0, rm_max=n
     required = ["ID", "Z_SPEC_central", "LAMBDA", spec_col]
     missing = set(required) - set(table.colnames)
     if missing:
-        raise KeyError(f"Missing {sorted(missing)}. Run postprocess_spectroscopic_richness.py first.")
+        raise KeyError(f"Missing {sorted(missing)}. Verify the input catalog contains cluster-level "
+                       "spectroscopic richness, or select its column with --spec-col.")
     if np.any(np.ma.getmaskarray(table["ID"])):
         raise ValueError("Masked cluster IDs are not allowed")
     ids, first, inverse = np.unique(np.asarray(table["ID"]).astype(str), return_index=True, return_inverse=True)

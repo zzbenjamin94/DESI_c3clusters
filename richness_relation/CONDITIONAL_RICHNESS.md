@@ -48,12 +48,12 @@ Set `DATA_ONLY = False` or omit `--data-only` to display saved model results.
 
 Default input:
 
-`catalogs/bgs_clus_RM_gal_matched_with_spec_richness_lfweighted.pickle`
+`catalogs/bgs_clus_RM_gal_matched_with_weights.fits`
 
-Generate that file with `make_catalogs/postprocess_spectroscopic_richness.py`
-if it does not yet exist. A parent matched catalog with the required precomputed
-richness columns can also be passed using `--input`; verify that the richness
-was computed with the intended postprocessing selection before using it.
+This is the combined matched catalog containing weights and precomputed
+spectroscopic richness. Preparation reads those measurements; it does not
+recompute weights or richness. Another catalog can be passed using `--input`;
+verify that its richness uses the intended postprocessing selection.
 
 The fields are `ID`, `lambda_spec_noproj_weighted`, `LAMBDA`, and
 `Z_SPEC_central`. All repeated values must agree within each cluster ID before
