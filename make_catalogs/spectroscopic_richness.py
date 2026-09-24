@@ -1,12 +1,10 @@
-"""Recompute three weighting stages once; never modify the matched catalog.
+"""Build three richness stages as part of matched-catalog generation.
 
 The continuum prescription is a degree-6 Chebyshev/specutils fit with a
 five-bin median smoothing window.
-Only preparation requires specutils; plotting cached products does not.
+Only catalog generation requires specutils; plotting saved columns does not.
 """
 
-import argparse
-import json
 from pathlib import Path
 import sys
 
@@ -16,18 +14,12 @@ from astropy.table import Table
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from richness_relation.prepare_conditional_richness import DEFAULT_INPUT, file_sha256, read_catalog
-from richness_relation.diagnose_richness_weights import diagnose_weights, write_report
+from make_catalogs.diagnose_richness_weights import diagnose_weights, write_report
+from tools.richness_schema import STAGES, CONTINUUM_DEGREE, CONTINUUM_MEDIAN_WINDOW
 from tools.richness_selection import (
     BCG_Z_BIN_EDGES, make_redshift_offset_bins, richness_analysis_mask,
     normalized_redshift_offset,
 )
-
-DEFAULT_OUTPUT = ROOT / "catalogs/richness_weighting/cluster_weighting_stages.ecsv"
-STAGES = ("lambda_spec_unweighted", "lambda_spec_geo_comp", "lambda_spec_geo_comp_lf")
-CONTINUUM_DEGREE = 6
-CONTINUUM_MEDIAN_WINDOW = 5
-
 
 def floats(table, key):
     return np.ma.asarray(table[key], dtype=float).filled(np.nan)
@@ -114,6 +106,7 @@ def prepare_stages(table, continuum_estimator=None):
                  "lambda_spec_proj_geo_comp_lf": lf * geo * signal_comp,
                  "continuum_unweighted": background,
                  "continuum_geo_comp": background_gc,
+                 "continuum_geo_comp_lf": lf * background_gc,
                  "lambda_spec_unweighted": n - background,
                  "lambda_spec_geo_comp": geo * signal_comp - background_gc})
     out[STAGES[2]] = lf * np.asarray(out[STAGES[1]])
@@ -155,48 +148,42 @@ def prepare_stages(table, continuum_estimator=None):
     return out, audit
 
 
-def prepare_file(input_path=DEFAULT_INPUT, output=DEFAULT_OUTPUT, overwrite=False, diagnose_only=False):
-    input_path, output = Path(input_path), Path(output)
-    if output.suffix != ".ecsv":
-        raise ValueError("Output must end in .ecsv")
-    audit_path = output.with_suffix(".json")
-    if input_path.resolve() in (output.resolve(), audit_path.resolve()):
-        raise ValueError("Never overwrite the input catalog")
-    if not diagnose_only and not overwrite and (output.exists() or audit_path.exists()):
-        raise FileExistsError(f"{output} or its audit exists; use --overwrite to regenerate")
-    table = read_catalog(input_path)
+def append_richness_to_matched(table, diagnostic_dir, continuum_estimator=None):
+    """Annotate every parent row without cutting the broad matched dataset.
+
+    Richness is evaluated only on science-selected candidates. Clusters with
+    no selected candidates receive NaN richness and RICHNESS_AVAILABLE=False.
+    """
     summary, flagged, affected = diagnose_weights(table)
-    if diagnose_only or summary["flagged_selected_rows"]:
-        summary.update(input_path=str(input_path.resolve()), input_sha256=file_sha256(input_path))
-        report_dir = write_report(summary, flagged, affected, output.parent / "weight_diagnostics")
-        if diagnose_only:
-            return summary, report_dir
+    if summary["flagged_selected_rows"]:
+        report_dir = write_report(summary, flagged, affected, diagnostic_dir)
         raise ValueError(f"Invalid weights or probabilities; inspect {report_dir / 'summary.json'}. "
                          "No rows were dropped, no weights changed, and no richness outputs overwritten.")
-    clusters, audit = prepare_stages(table)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    clusters.write(output, format="ascii.ecsv", overwrite=overwrite)
-    audit.update(input_path=str(input_path.resolve()), input_sha256=file_sha256(input_path),
-                 sample_sha256=file_sha256(output), code_sha256=file_sha256(Path(__file__)))
-    audit_path.write_text(json.dumps(audit, indent=2, allow_nan=False) + "\n")
-    print(f"Saved {len(clusters)} clusters to {output}")
-    return clusters, audit
-
-
-def load_stages(path=DEFAULT_OUTPUT):
-    path = Path(path)
-    audit = json.loads(path.with_suffix(".json").read_text())
-    if file_sha256(path) != audit["sample_sha256"]:
-        raise ValueError("Weight-stage sample checksum differs from its audit")
-    return Table.read(path, format="ascii.ecsv"), audit
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--diagnose-only", action="store_true",
-                        help="Write weight diagnostics without fitting continuum or modifying richness products")
-    args = parser.parse_args()
-    prepare_file(args.input, args.output, args.overwrite, args.diagnose_only)
+    clusters, audit = prepare_stages(table, continuum_estimator=continuum_estimator)
+    out = table.copy()
+    ids = np.asarray(out['ID']).astype(str)
+    cluster_ids = np.asarray(clusters['ID']).astype(str)
+    available = np.isin(ids, cluster_ids)
+    # np.unique in prepare_stages sorts IDs, so searchsorted preserves row order.
+    index = np.searchsorted(cluster_ids, ids[available])
+    for key in clusters.colnames:
+        if key in {'ID', 'Z_SPEC_central', 'LAMBDA', 'GEOMETRIC_WEIGHT', 'LF_WEIGHT'}:
+            continue
+        values = np.full(len(out), np.nan)
+        values[available] = np.asarray(clusters[key], dtype=float)[index]
+        out[key] = values
+    out['RICHNESS_AVAILABLE'] = available
+    out['RICHNESS_ANALYSIS_ROW'] = richness_analysis_mask(table)
+    aliases = {
+        'lambda_spec_noproj': STAGES[0],
+        'lambda_spec_noproj_weighted': STAGES[2],
+        'lambda_spec_proj': 'lambda_spec_proj_unweighted',
+        'lambda_spec_proj_weighted': 'lambda_spec_proj_geo_comp_lf',
+    }
+    for alias, source in aliases.items():
+        out[alias] = out[source].copy()
+    out.meta['RICHVER'] = 1
+    if continuum_estimator is None:
+        out.meta['CONTDEG'] = CONTINUUM_DEGREE
+        out.meta['CONTWIN'] = CONTINUUM_MEDIAN_WINDOW
+    return out, audit

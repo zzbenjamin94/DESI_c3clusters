@@ -29,6 +29,7 @@ from astropy.table import Table, join
 from specutils import SpectralRegion
 from scipy.interpolate import BSpline, make_interp_spline, UnivariateSpline
 import warnings
+from tools.richness_schema import CONTINUUM_DEGREE, CONTINUUM_MEDIAN_WINDOW
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.modeling import models
@@ -147,7 +148,7 @@ def calc_Continuum(binBoundaries, binCent, table):
     x_data_continuum = binCent
     
     spectrum = Spectrum1D(flux=y_data*u.Jy, spectral_axis=binCent*u.um)
-    g1_fit = fit_generic_continuum(spectrum, model=Chebyshev1D(9), median_window=3, exclude_regions=exclude_regions)
+    g1_fit = fit_generic_continuum(spectrum, model=Chebyshev1D(CONTINUUM_DEGREE), median_window=CONTINUUM_MEDIAN_WINDOW, exclude_regions=exclude_regions)
     y_continuum_prob = g1_fit(binCent*u.um).value
        
     return y_continuum_prob

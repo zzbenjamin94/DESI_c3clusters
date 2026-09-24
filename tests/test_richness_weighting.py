@@ -4,20 +4,22 @@ import unittest
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+from contextlib import ExitStack
 import numpy as np
 from astropy.table import Table
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from richness_relation.prepare_richness_weighting import (
+from make_catalogs.spectroscopic_richness import (
     prepare_stages, STAGES, CONTINUUM_DEGREE, CONTINUUM_MEDIAN_WINDOW,
+    append_richness_to_matched,
 )
 from richness_relation.weighting_plot_utils import common_sample, binned_log_mean
 from richness_relation.plot_richness_weighting_comparison import plot_relation
 from richness_relation.plot_spectroscopic_richness_residuals import plot_distributions
-from richness_relation.diagnose_richness_weights import diagnose_weights
-from richness_relation.prepare_richness_weighting import prepare_file
+from make_catalogs.diagnose_richness_weights import diagnose_weights
+from richness_relation.richness_catalog import load_stages, cluster_rows
 
 
 def catalog():
@@ -38,6 +40,40 @@ def flat_continuum(edges, centers, offsets):
 
 
 class WeightingTests(unittest.TestCase):
+    def test_matching_main_saves_all_stages(self):
+        from make_catalogs import projection_match_catalogs as matching
+        tab = catalog()
+        tab.remove_column('GEOMETRIC_FRACTION')
+        tab['RM_gal_flag'] = False
+        rm = Table({'ID': [10, 20, 30]})
+        geo = Table({'ID': [10, 20, 30], 'angRad_deg': [1., 1., 1.], 'sq_deg': [1., 1., 1.],
+                     'Nr_1.5hmpc_expected_per_file': [1., 1., 1.], 'N_random_total': [10, 10, 10],
+                     'N_random_files_GEOMETRIC_FRACTION': [1, 1, 1],
+                     'GEOMETRIC_FRACTION': 1 / np.array([1.1, 1.2, 1.3])})
+        with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
+            root = Path(tmp)
+            for name, value in [('OUTPUT_DIR', root), ('OUTPUT_PICKLE', root / 'matched.pickle'),
+                                ('OUTPUT_FITS', root / 'matched.fits'),
+                                ('OUTPUT_RICHNESS_AUDIT', root / 'audit.json')]:
+                stack.enter_context(patch.object(matching, name, value))
+            for name, value in [('mpi_context', (None, 0, 1)),
+                                ('load_redmapper_catalog', (rm, rm)), ('load_bgs_catalog', tab),
+                                ('match_bgs_to_clusters_projected', tab),
+                                ('attach_redmapper_member_match', tab),
+                                ('compute_geo_fraction_parallel', geo)]:
+                stack.enter_context(patch.object(matching, name, return_value=value))
+            stack.enter_context(patch.object(matching, 'add_lf_weight_columns', side_effect=lambda t: t))
+            stack.enter_context(patch('make_catalogs.spectroscopic_richness.legacy_continuum',
+                                      side_effect=flat_continuum))
+            self.assertEqual(matching.main(), 0)
+            saved = Table.read(root / 'matched.fits')
+            self.assertEqual(len(saved), len(tab))
+            self.assertEqual(saved.meta['CONTDEG'], 6)
+            self.assertEqual(saved.meta['CONTWIN'], 5)
+            self.assertTrue((root / 'audit.json').exists())
+            clusters, _ = load_stages(root / 'matched.fits')
+            np.testing.assert_allclose(clusters[STAGES[2]], clusters[STAGES[1]] * clusters['LF_WEIGHT'])
+
     def test_weight_diagnostics(self):
         tab = catalog()
         tab['COMP_WEIGHT'][:5] = [0, -1, np.nan, np.inf, 0]
@@ -67,17 +103,37 @@ class WeightingTests(unittest.TestCase):
             source = root / 'input.fits'
             tab.write(source)
             before = source.read_bytes()
-            output = root / 'stages.ecsv'
-            output.write_text('existing result')
-            with patch('richness_relation.prepare_richness_weighting.legacy_continuum',
+            with patch('make_catalogs.spectroscopic_richness.legacy_continuum',
                        side_effect=AssertionError('Continuum must not run')):
-                summary, report = prepare_file(source, output, diagnose_only=True)
+                with self.assertRaisesRegex(ValueError, 'No rows were dropped'):
+                    append_richness_to_matched(tab, root / 'diagnostics')
+                report = next((root / 'diagnostics').iterdir())
                 self.assertTrue((report / 'flagged_rows.ecsv').exists())
                 self.assertTrue((report / 'affected_clusters.ecsv').exists())
-                with self.assertRaisesRegex(ValueError, 'No rows were dropped'):
-                    prepare_file(source, output, overwrite=True)
             self.assertEqual(source.read_bytes(), before)
-            self.assertEqual(output.read_text(), 'existing result')
+
+    def test_catalog_annotation_and_plot_reader(self):
+        tab = catalog()
+        tab['Z_SPEC_central'][:4] = 0.08
+        with tempfile.TemporaryDirectory() as tmp:
+            out, audit = append_richness_to_matched(tab, Path(tmp), flat_continuum)
+            self.assertEqual(len(out), len(tab))
+            np.testing.assert_array_equal(out['ID'], tab['ID'])
+            self.assertTrue(np.all(np.isnan(out[STAGES[0]][:4])))
+            self.assertFalse(np.any(out['RICHNESS_AVAILABLE'][:4]))
+            self.assertEqual(np.sum(out['RICHNESS_ANALYSIS_ROW']), 8)
+            np.testing.assert_allclose(out['lambda_spec_noproj_weighted'], out[STAGES[2]])
+            path = Path(tmp) / 'matched.fits'
+            out.write(path)
+            clusters, info = load_stages(path)
+            self.assertEqual(len(clusters), 3)
+            np.testing.assert_allclose(clusters[STAGES[2]], clusters['LF_WEIGHT'] * clusters[STAGES[1]])
+            self.assertEqual(info['matched_rows'], len(tab))
+            with self.assertRaisesRegex(KeyError, 'Regenerate'):
+                cluster_rows(tab)
+            out[STAGES[1]][4] += 1
+            with self.assertRaisesRegex(ValueError, 'varies within'):
+                cluster_rows(out)
 
     def test_continuum_defaults_and_custom_audit(self):
         self.assertEqual(CONTINUUM_DEGREE, 6)

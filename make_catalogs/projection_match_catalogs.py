@@ -10,9 +10,9 @@ The intended output is a broad parent galaxy-level table with one row per unique
 redMaPPer-cluster/BGS-galaxy pair.  The table contains BGS columns,
 redMaPPer cluster columns, optional redMaPPer member-galaxy columns, a central
 flag, projected radius, geometric coverage fraction, and explicit weight
-columns. Scientific redshift and normalized-offset cuts, and the resulting
-spectroscopic-richness columns, are added by the postprocessing script rather
-than at this matching stage.
+columns and all three spectroscopic-richness weighting stages. Scientific
+cuts select candidates for the richness calculation only: no rows are
+removed from the broad parent table. No later richness postprocessing is needed.
 
 Weight convention:
 
@@ -36,6 +36,8 @@ Edit the configuration block below before running on NERSC.
 from __future__ import annotations
 
 import pickle
+import json
+import sys
 from pathlib import Path
 import warnings
 
@@ -62,6 +64,10 @@ except ImportError:
 REPO_ROOT = Path("/global/homes/z/zzhang13/DESI/Projection")
 if not REPO_ROOT.exists():
     REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from make_catalogs.spectroscopic_richness import append_richness_to_matched
 
 CATALOG_DIR = REPO_ROOT / "catalogs"
 OUTPUT_DIR = CATALOG_DIR
@@ -73,6 +79,7 @@ RANDOM_DIR = BGS_LSSCAT_DIR
 
 OUTPUT_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.pickle"
 OUTPUT_FITS = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.fits"
+OUTPUT_RICHNESS_AUDIT = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights_richness_audit.json"
 LF_SUMMARY_CSV = CATALOG_DIR / "bgs_direct_lf_logL_global_vmax_schechter_fit_summary.csv"
 
 PROJECTED_APERTURE_HMPC = 1.5
@@ -851,9 +858,15 @@ def main() -> int:
             "LF_WEIGHT percentiles: "
             f"{np.nanpercentile(np.asarray(bgs_matched['LF_WEIGHT'], dtype=float), [0, 16, 50, 84, 100])}"
         )
+        print("Computing continuum and unweighted / geometry+completeness / LF richness stages")
+        bgs_matched, richness_audit = append_richness_to_matched(
+            bgs_matched, OUTPUT_DIR / "weight_diagnostics",
+        )
         with OUTPUT_PICKLE.open("wb") as handle:
             pickle.dump(bgs_matched, handle, protocol=pickle.HIGHEST_PROTOCOL)
         bgs_matched.write(OUTPUT_FITS, overwrite=True)
+        OUTPUT_RICHNESS_AUDIT.write_text(json.dumps(richness_audit, indent=2, allow_nan=False) + "\n")
+        print(f"Saved continuum and richness audit: {OUTPUT_RICHNESS_AUDIT}")
         print(f"Saved broad parent matched catalog: {OUTPUT_PICKLE}")
         print(f"Saved broad parent matched catalog: {OUTPUT_FITS}")
 

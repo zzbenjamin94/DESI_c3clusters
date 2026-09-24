@@ -3,7 +3,7 @@
 from pathlib import Path
 import numpy as np
 from matplotlib.lines import Line2D
-from richness_relation.prepare_richness_weighting import STAGES
+from tools.richness_schema import STAGES
 from tools.richness_selection import BCG_Z_BIN_EDGES
 
 COLORS = ("crimson", "darkorange", "royalblue")

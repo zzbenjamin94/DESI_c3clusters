@@ -1,11 +1,15 @@
-"""Read-only weight diagnostics; no weight repair or scientific-quality cuts."""
+"""Catalog-generation weight diagnostics; no repair or scientific-quality cuts."""
 
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 from astropy.table import Table
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from tools.richness_selection import richness_analysis_mask
 
 
@@ -101,3 +105,14 @@ def write_report(summary, rows, clusters, directory):
     print("  PROB_OBS:", summary["probability"])
     print(f"Diagnostic report saved to {directory.resolve()}")
     return directory
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--input', type=Path, default=ROOT / 'catalogs/bgs_clus_RM_gal_matched_with_weights.fits')
+    parser.add_argument('--output', type=Path, default=ROOT / 'catalogs/weight_diagnostics')
+    args = parser.parse_args()
+    summary, rows, clusters = diagnose_weights(Table.read(args.input))
+    summary['input_path'] = str(args.input.resolve())
+    write_report(summary, rows, clusters, args.output)

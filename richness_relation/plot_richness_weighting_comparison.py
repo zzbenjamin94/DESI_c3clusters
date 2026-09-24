@@ -9,7 +9,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from richness_relation.prepare_richness_weighting import DEFAULT_OUTPUT, STAGES, load_stages
+from richness_relation.richness_catalog import DEFAULT_CATALOG, STAGES, load_stages
 from richness_relation.weighting_plot_utils import (
     COLORS, MARKERS, TITLES, RM_BINS, Z_BINS, common_sample, binned_log_mean, style, legend, save,
 )
@@ -49,7 +49,7 @@ def plot_relation(table, rm_bins=RM_BINS, min_count=20, xlim=(20, 100), ylim=Non
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--data", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--output", type=Path, default=ROOT / "plots/richness_weighting")
     parser.add_argument("--min-count", type=int, default=20)
     args = parser.parse_args()
