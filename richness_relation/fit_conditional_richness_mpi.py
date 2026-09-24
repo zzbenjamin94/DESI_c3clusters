@@ -23,7 +23,7 @@ from richness_relation.conditional_richness_models import (
     ModelConfig, log_probability, parameter_spec, physical_parameters,
     selected_cdf, selected_logpdf, selected_rvs,
 )
-from richness_relation.prepare_conditional_richness import DEFAULT_OUTPUT, file_sha256
+from richness_relation.prepare_conditional_richness import DEFAULT_OUTPUT, file_sha256, load_sample
 
 _TASKS = {}
 
@@ -38,20 +38,6 @@ def write_json(path, value):
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
     temporary.replace(path)
-
-
-def load_sample(path):
-    audit = json.loads(path.with_suffix(".json").read_text())
-    if file_sha256(path) != audit["sample_sha256"]:
-        raise ValueError("Sample checksum differs from preparation audit")
-    with np.load(path, allow_pickle=False) as source:
-        data = {key: source[key] for key in source.files}
-    for key in ("lambda_rm", "lambda_spec", "z"):
-        if np.any(~np.isfinite(data[key])):
-            raise ValueError(f"Nonfinite {key} in prepared sample")
-    if np.any(data["lambda_spec"] <= 0) or len(np.unique(data["ID"])) != len(data["ID"]):
-        raise ValueError("Expected positive spectroscopic richness and unique IDs")
-    return data, audit
 
 
 def make_tasks(args, data, audit):

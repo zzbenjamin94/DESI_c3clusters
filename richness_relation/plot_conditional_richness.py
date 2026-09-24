@@ -1,4 +1,4 @@
-"""Plot saved Section 5 fits; this module never launches optimization or MCMC."""
+"""Plot Section 5 data or saved fits; never launch optimization or MCMC."""
 
 import argparse
 import json
@@ -16,8 +16,7 @@ if str(ROOT) not in sys.path:
 from richness_relation.conditional_richness_models import (
     ModelConfig, mu_rm, selected_cdf, selected_logpdf,
 )
-from richness_relation.fit_conditional_richness_mpi import load_sample
-from richness_relation.prepare_conditional_richness import DEFAULT_OUTPUT
+from richness_relation.prepare_conditional_richness import DEFAULT_OUTPUT, load_sample
 
 COLORS = ["#176b93", "#b33b3b", "#27835e"]
 MODEL_COLORS = {"lognormal": "#235ca3", "mixture": "#bb452d"}
@@ -218,6 +217,58 @@ def residual_plot(data, results, output):
         save(fig, output, f"{model}_conditional_residuals")
 
 
+def binned_offset_mean(x, offset, log_x=False, max_bins=7, min_count=20):
+    """Mean log-ratio and its SEM; not the population scatter."""
+    nbin = min(max_bins, len(x) // min_count)
+    if nbin < 1:
+        return np.empty((0, 3))
+    edges = np.unique(np.quantile(x, np.linspace(0, 1, nbin + 1)))
+    points = []
+    for index, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+        mask = (x >= lo) & ((x <= hi) if index == len(edges) - 2 else (x < hi))
+        if mask.sum() < min_count:
+            continue
+        center = np.exp(np.mean(np.log(x[mask]))) if log_x else np.mean(x[mask])
+        values = offset[mask]
+        points.append([center, values.mean(), values.std(ddof=1) / np.sqrt(len(values))])
+    return np.asarray(points).reshape(-1, 3)
+
+
+def offset_plot(data, audit, output):
+    """Offset from equality in dex, not a fitted residual or projection estimate."""
+    offset = np.log10(data["lambda_rm"]) - np.log10(data["lambda_spec"])
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.4))
+    hist_edges = np.histogram_bin_edges(offset, bins=30)
+    edges = audit["z_bin_edges"]
+    for color, lo, hi in zip(COLORS, edges[:-1], edges[1:]):
+        mask = (data["z"] >= lo) & (data["z"] < hi)
+        if not np.any(mask):
+            continue
+        label = rf"${lo:.2f}\leq z<{hi:.2f}$"
+        for ax, key, log_x in zip(axes[:2], ("lambda_spec", "z"), (True, False)):
+            x, y = data[key][mask], offset[mask]
+            ax.scatter(x, y, s=6, alpha=0.22, color=color, rasterized=True)
+            points = binned_offset_mean(x, y, log_x=log_x)
+            if len(points):
+                ax.errorbar(points[:, 0], points[:, 1], yerr=points[:, 2],
+                            fmt="o", ls="none", ms=5, color=color)
+        axes[2].hist(offset[mask], bins=hist_edges, density=True,
+                     histtype="step", lw=1.5, color=color, label=label)
+    ylabel = r"$\log_{10}(\lambda_{\rm RM}/\lambda_{\rm spec})$ [dex]"
+    for ax, label in zip(axes[:2], (r"$\lambda_{\rm spec}$", r"$z_{\rm BCG}$")):
+        ax.axhline(0, color="black", lw=1, ls="--")
+        ax.set(xlabel=label, ylabel=ylabel)
+    axes[0].set_xscale("log")
+    axes[2].axvline(0, color="black", lw=1, ls="--")
+    axes[2].set(xlabel=ylabel, ylabel=r"Probability density [dex$^{-1}$]")
+    for ax in axes:
+        style(ax)
+    handles, labels = axes[2].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=3, frameon=False)
+    fig.tight_layout(rect=(0, 0.12, 1, 1))
+    save(fig, output, "richness_logratio_offsets")
+
+
 def diagnostic_plots(results, output):
     import h5py
     for name, result in results.items():
@@ -271,11 +322,17 @@ def comparison_tables(results, output):
 
 
 def plot_all(data_path=DEFAULT_OUTPUT, fit_root=ROOT / "catalogs/conditional_richness/fits",
-             output=ROOT / "plots/conditional_richness", seed=42, draws=30):
+             output=ROOT / "plots/conditional_richness", seed=42, draws=30, data_only=False):
     data, audit = load_sample(Path(data_path))
-    results = load_results(Path(fit_root), seed, audit)
     output = Path(output)
     rng = np.random.default_rng(seed)
+    if data_only:
+        output = output / "data_only"
+        scatter_plot(data, audit, {}, output, draws, rng)
+        offset_plot(data, audit, output)
+        print(f"Data-only figures saved under {output}; no fits were loaded or run.")
+        return pd.DataFrame()
+    results = load_results(Path(fit_root), seed, audit)
     scatter_plot(data, audit, results, output, draws, rng)
     distribution_plot(data, audit, results, output, draws, rng)
     residual_plot(data, results, output)
@@ -295,7 +352,11 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=ROOT / "plots/conditional_richness")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--draws", type=int, default=30)
+    parser.add_argument("--data-only", action="store_true",
+                        help="Plot scatter and log-ratio offsets without reading saved fits")
     args = parser.parse_args()
     if args.draws < 1:
         parser.error("--draws must be positive")
-    print(plot_all(args.data, args.fits, args.output, args.seed, args.draws).to_string(index=False))
+    comparison = plot_all(args.data, args.fits, args.output, args.seed, args.draws, args.data_only)
+    if not comparison.empty:
+        print(comparison.to_string(index=False))

@@ -30,6 +30,24 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+def load_sample(path):
+    """Read a prepared, checksum-validated sample without importing a fitter."""
+    path = Path(path)
+    audit = json.loads(path.with_suffix(".json").read_text())
+    if file_sha256(path) != audit["sample_sha256"]:
+        raise ValueError("Sample checksum differs from preparation audit")
+    with np.load(path, allow_pickle=False) as source:
+        data = {key: source[key] for key in source.files}
+    n = len(data["ID"])
+    for key in ("lambda_rm", "lambda_spec", "z"):
+        if data[key].shape != (n,) or np.any(~np.isfinite(data[key])):
+            raise ValueError(f"Invalid shape or nonfinite {key} in prepared sample")
+    if (n == 0 or np.any(data["lambda_spec"] <= 0) or np.any(data["lambda_rm"] <= 0)
+            or len(np.unique(data["ID"])) != n):
+        raise ValueError("Expected nonempty sample, positive richnesses and unique IDs")
+    return data, audit
+
+
 def read_catalog(path):
     path = Path(path)
     if path.suffix in {".pickle", ".pkl"}:

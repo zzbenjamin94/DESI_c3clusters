@@ -12,8 +12,37 @@ galaxy matching, weights, or continuum.
 | `conditional_richness_models.py` | Common likelihoods, priors, conditional CDFs and predictive sampling. |
 | `fit_conditional_richness_mpi.py` | Multi-start optimization, emcee, checkpoints, fit statistics and predictive checks. |
 | `plot_conditional_richness.py` | Reusable plotting functions and terminal entry point; no fitting. |
-| `plot_conditional_richness.ipynb` | Interactive display of saved fits, tables and diagnostics. |
+| `plot_conditional_richness.ipynb` | Data-only plots by default; optional saved fits, tables and diagnostics. |
 | `run_conditional_richness.slurm` | One-node, eight-rank NERSC example under account `desi`. |
+
+## Data-only plots (no fitting)
+
+Prepare the sample once, then run:
+
+```bash
+python richness_relation/prepare_conditional_richness.py
+python richness_relation/plot_conditional_richness.py --data-only
+```
+
+Alternatively, run `plot_conditional_richness.ipynb` with `DATA_ONLY = True`
+(the default). Neither route imports the MCMC runner or reads fit products.
+Outputs are PNG and PDF files in `plots/conditional_richness/data_only/`:
+
+- `richness_relation_redshift_bins`: individual richnesses and geometric means
+  with log-space SEM transformed to asymmetric linear error bars, in the three
+  existing redshift bins.
+- `richness_logratio_offsets`: d = log10(lambda_RM / lambda_spec) versus
+  spectroscopic richness and BCG redshift, plus its distribution in each
+  redshift bin. Points show arithmetic means of d with SEM = std(d, ddof=1)/sqrt(N),
+  in dex, without connecting lines. Quantile bins have at most seven bins per
+  redshift interval; bins with fewer than 20 clusters are not plotted.
+
+This offset is relative to equality, not a fitted residual or a direct measure
+of projection: differences in estimator normalization and selection also matter.
+SEM describes uncertainty in the mean, not cluster-to-cluster scatter, and
+assumes independent clusters. Data-only outputs are separated from fit outputs
+so the notebook cannot accidentally display stale fitted curves or tables.
+Set `DATA_ONLY = False` or omit `--data-only` to display saved model results.
 
 ## Input and selection
 
