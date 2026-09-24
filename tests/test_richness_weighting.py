@@ -1,6 +1,9 @@
 """Deterministic stage tests independent of the external continuum fitter."""
 
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 import numpy as np
 from astropy.table import Table
 import matplotlib
@@ -13,6 +16,8 @@ from richness_relation.prepare_richness_weighting import (
 from richness_relation.weighting_plot_utils import common_sample, binned_log_mean
 from richness_relation.plot_richness_weighting_comparison import plot_relation
 from richness_relation.plot_spectroscopic_richness_residuals import plot_distributions
+from richness_relation.diagnose_richness_weights import diagnose_weights
+from richness_relation.prepare_richness_weighting import prepare_file
 
 
 def catalog():
@@ -33,6 +38,47 @@ def flat_continuum(edges, centers, offsets):
 
 
 class WeightingTests(unittest.TestCase):
+    def test_weight_diagnostics(self):
+        tab = catalog()
+        tab['COMP_WEIGHT'][:5] = [0, -1, np.nan, np.inf, 0]
+        tab['PROB_OBS'][4] = 0
+        tab['ZWARN'] = np.zeros(len(tab), dtype=int)
+        tab['ZWARN'][4] = 999999
+        tab['SPECTYPE'] = ['GALAXY'] * len(tab)
+        tab['Z_BGS'][3] = 1.0  # Outside the selection: reported only in all-row counts.
+        summary, rows, clusters = diagnose_weights(tab)
+        self.assertEqual(summary['flagged_selected_rows'], 4)
+        self.assertEqual(summary['affected_clusters'], 2)
+        self.assertEqual(summary['probability']['invalid_comp_with_valid_probability'], 3)
+        self.assertEqual(summary['probability']['invalid_comp_with_invalid_probability'], 1)
+        self.assertIn('ZWARN', rows.colnames)
+        self.assertEqual(summary['weights']['COMP_WEIGHT']['all_rows']['infinite'], 1)
+        self.assertEqual(summary['weights']['COMP_WEIGHT']['selected_rows']['infinite'], 0)
+        np.testing.assert_array_equal(rows['INPUT_ROW_INDEX'], [0, 1, 2, 4])
+        self.assertEqual(tab['COMP_WEIGHT'][0], 0)
+        tab.remove_column('PROB_OBS')
+        self.assertFalse(diagnose_weights(tab)[0]['probability']['available'])
+
+    def test_diagnostic_files_preserve_existing_outputs(self):
+        tab = catalog()
+        tab['COMP_WEIGHT'][0] = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'input.fits'
+            tab.write(source)
+            before = source.read_bytes()
+            output = root / 'stages.ecsv'
+            output.write_text('existing result')
+            with patch('richness_relation.prepare_richness_weighting.legacy_continuum',
+                       side_effect=AssertionError('Continuum must not run')):
+                summary, report = prepare_file(source, output, diagnose_only=True)
+                self.assertTrue((report / 'flagged_rows.ecsv').exists())
+                self.assertTrue((report / 'affected_clusters.ecsv').exists())
+                with self.assertRaisesRegex(ValueError, 'No rows were dropped'):
+                    prepare_file(source, output, overwrite=True)
+            self.assertEqual(source.read_bytes(), before)
+            self.assertEqual(output.read_text(), 'existing result')
+
     def test_continuum_defaults_and_custom_audit(self):
         self.assertEqual(CONTINUUM_DEGREE, 6)
         self.assertEqual(CONTINUUM_MEDIAN_WINDOW, 5)

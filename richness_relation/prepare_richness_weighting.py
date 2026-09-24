@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from richness_relation.prepare_conditional_richness import DEFAULT_INPUT, file_sha256, read_catalog
+from richness_relation.diagnose_richness_weights import diagnose_weights, write_report
 from tools.richness_selection import (
     BCG_Z_BIN_EDGES, make_redshift_offset_bins, richness_analysis_mask,
     normalized_redshift_offset,
@@ -154,16 +155,25 @@ def prepare_stages(table, continuum_estimator=None):
     return out, audit
 
 
-def prepare_file(input_path=DEFAULT_INPUT, output=DEFAULT_OUTPUT, overwrite=False):
+def prepare_file(input_path=DEFAULT_INPUT, output=DEFAULT_OUTPUT, overwrite=False, diagnose_only=False):
     input_path, output = Path(input_path), Path(output)
     if output.suffix != ".ecsv":
         raise ValueError("Output must end in .ecsv")
     audit_path = output.with_suffix(".json")
     if input_path.resolve() in (output.resolve(), audit_path.resolve()):
         raise ValueError("Never overwrite the input catalog")
-    if not overwrite and (output.exists() or audit_path.exists()):
+    if not diagnose_only and not overwrite and (output.exists() or audit_path.exists()):
         raise FileExistsError(f"{output} or its audit exists; use --overwrite to regenerate")
-    clusters, audit = prepare_stages(read_catalog(input_path))
+    table = read_catalog(input_path)
+    summary, flagged, affected = diagnose_weights(table)
+    if diagnose_only or summary["flagged_selected_rows"]:
+        summary.update(input_path=str(input_path.resolve()), input_sha256=file_sha256(input_path))
+        report_dir = write_report(summary, flagged, affected, output.parent / "weight_diagnostics")
+        if diagnose_only:
+            return summary, report_dir
+        raise ValueError(f"Invalid weights or probabilities; inspect {report_dir / 'summary.json'}. "
+                         "No rows were dropped, no weights changed, and no richness outputs overwritten.")
+    clusters, audit = prepare_stages(table)
     output.parent.mkdir(parents=True, exist_ok=True)
     clusters.write(output, format="ascii.ecsv", overwrite=overwrite)
     audit.update(input_path=str(input_path.resolve()), input_sha256=file_sha256(input_path),
@@ -186,5 +196,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--diagnose-only", action="store_true",
+                        help="Write weight diagnostics without fitting continuum or modifying richness products")
     args = parser.parse_args()
-    prepare_file(args.input, args.output, args.overwrite)
+    prepare_file(args.input, args.output, args.overwrite, args.diagnose_only)

@@ -27,6 +27,25 @@ The two notebooks replace the data-only work formerly combined in
 
 ## Estimator and important assumptions
 
+### Diagnose invalid weights first
+
+```bash
+python richness_relation/prepare_richness_weighting.py --diagnose-only
+```
+
+This does not require specutils, fit a continuum, or overwrite the catalog or
+existing richness products. A timestamped folder under
+`catalogs/richness_weighting/weight_diagnostics/` contains `summary.json`,
+`flagged_rows.ecsv`, and `affected_clusters.ecsv`. The summary distinguishes
+zero, negative, NaN/masked, and infinite weights, checks probability validity,
+and counts affected clusters. The row table includes original zero-based row
+indices, weights, probabilities, redshifts and any available quality columns.
+Quality flags are reported without assuming a catalog-specific quality cut.
+Invalid stored weights with valid probabilities are identified for investigation,
+not automatically repaired. Counts refer to matched rows, not unique TARGETIDs.
+The normal preparation command also writes this report and stops when invalid
+selected weights/probabilities are found. No rows are silently excluded.
+
 For cluster i, N_i is the number of selected candidate galaxies, C_g is its
 galaxy's COMP_WEIGHT, G_i is GEOMETRIC_WEIGHT, and F_i is LF_WEIGHT. Candidate
 selection uses the shared science cuts: BCG z in [0.10,0.35), BGS z in
