@@ -1,0 +1,10 @@
+numpy>=1.23,<3
+scipy>=1.9
+pandas>=1.5
+astropy>=5
+matplotlib>=3.6
+h5py>=3.7
+emcee>=3.1,<4
+schwimmbad>=0.4,<0.5
+# Use the existing NERSC-compatible mpi4py installation and Cray MPI modules.
+# Notebook visualization also requires IPython and Jupyter in that environment.
