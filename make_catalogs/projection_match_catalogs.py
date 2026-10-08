@@ -323,10 +323,21 @@ def load_bgs_catalog(path: Path = BGS_CATALOG):
 
     if "PROB_OBS" not in bgs.colnames:
         raise KeyError("DR2 BGS catalog must contain PROB_OBS.")
-    prob_obs = np.asarray(bgs["PROB_OBS"], dtype=float)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        comp_weight = 1.0 / prob_obs
-    comp_weight[~np.isfinite(comp_weight) | (comp_weight <= 0)] = 0.0
+    prob_obs = np.ma.asarray(bgs["PROB_OBS"], dtype=float).filled(np.nan)
+    valid_prob = np.isfinite(prob_obs) & (prob_obs > 0) & (prob_obs <= 1)
+    print(
+        f"BGS probability selection: retaining {valid_prob.sum():,}/{len(bgs):,} rows; "
+        f"excluding {(~valid_prob).sum():,} rows with invalid PROB_OBS "
+        "(require finite 0 < PROB_OBS <= 1)"
+    )
+    if not np.any(valid_prob):
+        raise ValueError("No BGS rows have valid PROB_OBS; cannot perform matching.")
+    # Exclude ineligible galaxies before pairing, not entire clusters.
+    bgs = bgs[valid_prob]
+    with np.errstate(over="ignore"):
+        comp_weight = 1.0 / prob_obs[valid_prob]
+    if not np.all(np.isfinite(comp_weight)):
+        raise ValueError("Valid PROB_OBS produced nonfinite inverse weights; inspect tiny probabilities.")
     bgs["COMP_WEIGHT"] = comp_weight
 
     required_keep_cols = [

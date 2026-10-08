@@ -12,10 +12,11 @@ import pickle
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-from astropy.table import Table
+from astropy.table import Table, MaskedColumn
 
 from make_catalogs import projection_match_catalogs as pipeline
 from tools.richness_selection import (
@@ -120,8 +121,38 @@ class TestDR2CatalogLoading(unittest.TestCase):
         self.assertIn("COMP_WEIGHT", loaded.colnames)
         np.testing.assert_allclose(
             loaded["COMP_WEIGHT"],
-            [1.0, 2.0, 4.0, 0.0, 0.0],
+            [1.0, 2.0, 4.0],
         )
+        np.testing.assert_array_equal(loaded["TARGETID"], [101, 102, 103])
+
+    def test_invalid_probabilities_removed_before_matching(self):
+        source = Table({
+            "TARGETID": np.arange(9), "RA": np.full(9, 10.0),
+            "DEC": np.zeros(9), "Z": np.linspace(0.04, 0.42, 9),
+        })
+        source["PROB_OBS"] = MaskedColumn(
+            [1.0, 0.0, -1.0, np.nan, np.inf, -np.inf, 1.1, 0.5, 0.25],
+            mask=[False] * 7 + [True, False],
+        )
+        path = Path("BGS_BRIGHT_full_noveto.dat.fits")
+        with patch.object(pipeline, "discover_files", return_value=[path]), patch.object(
+            pipeline.Table, "read", return_value=source
+        ):
+            loaded = pipeline.load_bgs_catalog(path)
+        np.testing.assert_array_equal(loaded["TARGETID"], [0, 8])
+        np.testing.assert_allclose(loaded["COMP_WEIGHT"], [1.0, 4.0])
+        np.testing.assert_allclose(loaded["Z_BGS"], [0.04, 0.42])
+        self.assertEqual(len(source), 9)
+
+    def test_no_valid_probabilities_fails_before_matching(self):
+        source = Table({"TARGETID": [1], "RA": [10.0], "DEC": [0.0],
+                        "Z": [0.2], "PROB_OBS": [0.0]})
+        path = Path("BGS_BRIGHT_full_noveto.dat.fits")
+        with patch.object(pipeline, "discover_files", return_value=[path]), patch.object(
+            pipeline.Table, "read", return_value=source
+        ):
+            with self.assertRaisesRegex(ValueError, "No BGS rows"):
+                pipeline.load_bgs_catalog(path)
 
     def test_load_bgs_catalog_requires_prob_obs(self):
         source = Table()
