@@ -1,0 +1,33 @@
+{
+  "cluster_catalog": "/global/homes/z/zzhang13/DESI/Projection/catalogs/bgs_clus_RM_gal_matched_with_weights.fits",
+  "output_dir": "/global/homes/z/zzhang13/DESI/Projection/local_overdensity/dr9_outputs/section4",
+  "gaussian_width_hmpc": null,
+  "chunk_rows": 100000,
+  "dr9": {
+    "sweep_dirs": [
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/north/sweep/9.0",
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/south/sweep/9.0"
+    ],
+    "photoz_dirs": null,
+    "lf_curve": null,
+    "r_mag_limit": null,
+    "gr_max": null,
+    "maskbits_reject": null,
+    "random_globs": null,
+    "random_measure_column": "AREA_DEG2",
+    "input_selection_confirmed": false
+  },
+  "bgs": {
+    "data_globs": ["/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSScats/v2.1/BGS_BRIGHT_full_noveto.dat.fits"],
+    "redshift_column": "Z",
+    "quality_column": null,
+    "quality_values": null,
+    "additional_weight_column": null,
+    "pi_half_hmpc": null,
+    "lf_curve": null,
+    "nbar_curve": null,
+    "random_globs": null,
+    "random_measure_column": "VOLUME_HMPC3",
+    "input_selection_confirmed": false
+  }
+}
