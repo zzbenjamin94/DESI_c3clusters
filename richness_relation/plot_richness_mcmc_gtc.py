@@ -101,6 +101,7 @@ def plot_task(directory, output, burn=None, thin=1, max_samples=100000, overwrit
         figureSize="MNRAS_page",
         customLabelFont={"family": "DejaVu Sans", "size": 16},
         customLegendFont={"family": "DejaVu Sans", "size": 13},
+        customTickFont={"family": "DejaVu Sans", "size": 10},
         plotName=str(targets[0]),
     )
     fig.savefig(targets[1], dpi=200, bbox_inches="tight")
