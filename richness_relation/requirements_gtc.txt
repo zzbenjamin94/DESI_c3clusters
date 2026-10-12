@@ -1,0 +1,2 @@
+# Additional plotting dependency; existing richness requirements still apply.
+pygtc>=0.5,<0.6
