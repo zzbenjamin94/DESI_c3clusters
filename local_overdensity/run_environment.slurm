@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=32
 #SBATCH --cpus-per-task=1
-#SBATCH --time=02:00:00
+#SBATCH --time=14:00:00
 #SBATCH --job-name=section4-environment
 #SBATCH --output=section4-environment-%j.log
 
