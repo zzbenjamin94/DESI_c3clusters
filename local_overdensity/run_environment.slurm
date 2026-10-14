@@ -3,7 +3,7 @@
 #SBATCH --constraint=cpu
 #SBATCH --qos=regular
 #SBATCH --nodes=1
-#SBATCH --ntasks=8
+#SBATCH --ntasks=32
 #SBATCH --cpus-per-task=1
 #SBATCH --time=02:00:00
 #SBATCH --job-name=section4-environment
@@ -18,5 +18,5 @@ case "$ENV_TRACER" in dr9|bgs) ;; *) echo "Invalid ENV_TRACER"; exit 2 ;; esac
 started=$SECONDS
 trap 'echo "Elapsed seconds: $((SECONDS - started))"' EXIT
 # Walltime is a starting budget, not a benchmark or completeness guarantee.
-srun -n 8 -c 1 python -u "local_overdensity/measure_${ENV_TRACER}_environment_mpi.py" \
+srun -n 32 -c 1 python -u "local_overdensity/measure_${ENV_TRACER}_environment_mpi.py" \
     --config local_overdensity/environment_config.json --mpi --resume
