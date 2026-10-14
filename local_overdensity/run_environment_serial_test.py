@@ -37,8 +37,47 @@ def select_jobs(jobs, max_data_jobs=0, max_random_jobs=0):
     return selected
 
 
+def targeted_north_inputs(clusters, c):
+    """Complete apertures inside the known-good 130--140, 45--50 degree sweep."""
+    from astropy.coordinates import SkyCoord
+    from astropy.cosmology import Planck18
+    from astropy.io import fits
+    t = c["dr9"]
+    if t.get("photoz_mode") != "gaussian_fits" or t.get("regions") != ["north", "south"]:
+        raise ValueError("Targeted test requires the native north/south DR9 configuration")
+    ra = np.asarray(clusters["RA_central"], float)
+    dec = np.asarray(clusters["DEC_central"], float)
+    z = np.asarray(clusters["Z_SPEC_central"], float)
+    theta = 10 / (Planck18.comoving_transverse_distance(z).value * Planck18.h)
+    delta_dec = np.rad2deg(theta)
+    delta_ra = np.rad2deg(np.arcsin(np.clip(np.sin(theta)/np.cos(np.deg2rad(dec)), -1, 1)))
+    b = SkyCoord(ra, dec, unit="deg").galactic.b.deg
+    keep = ((ra-delta_ra > 130) & (ra+delta_ra < 140) &
+            (dec-delta_dec > 45) & (dec+delta_dec < 50) &
+            (dec-delta_dec >= 32.375) & (b > delta_dec))
+    eligible = np.flatnonzero(keep)
+    if not len(eligible):
+        raise ValueError("No clusters have a complete 10 h^-1 Mpc aperture inside the test sweep")
+    path = Path(t["sweep_dirs"][0]) / "sweep-130p045-140p050.fits"
+    photoz = Path(t["photoz_dirs"][0]) / "sweep-130p045-140p050-pz.fits"
+    random = Path(t["random_globs"][0]).parent / "randoms-north-1-0.fits"
+    for file in (path, photoz, random):
+        if not file.is_file():
+            raise FileNotFoundError(file)
+    jobs = [dict(kind="data", path=str(path), photoz=str(photoz), region="north")]
+    with fits.open(random, memmap=True) as hdul:
+        n = hdul[1].header["NAXIS2"]
+    if n == 0:
+        raise ValueError("Targeted random realization is empty")
+    for start in range(0, n, c["chunk_rows"]):
+        jobs.append(dict(kind="random", path=str(random), start=start,
+                         stop=min(start+c["chunk_rows"], n), region="north",
+                         density=t["random_density_per_realization"]))
+    return eligible, jobs
+
+
 def smoke_run(config, tracer, output, max_clusters=25, seed=42,
-              max_data_jobs=0, max_random_jobs=0, dry_run=False):
+              max_data_jobs=0, max_random_jobs=0, dry_run=False, targeted_north=False):
     # Reject a multi-process launch, but permit a plain Python process inside
     # an interactive Slurm allocation that happens to reserve multiple CPUs.
     for key in ("OMPI_COMM_WORLD_SIZE", "PMI_SIZE", "PMIX_SIZE"):
@@ -49,10 +88,16 @@ def smoke_run(config, tracer, output, max_clusters=25, seed=42,
     c = load_config(config, tracer)
     clusters = load_clusters(c["cluster_catalog"])
     available_clusters = len(clusters)
+    if targeted_north:
+        if tracer != "dr9" or max_data_jobs or max_random_jobs:
+            raise ValueError("--targeted-north requires dr9 and no task limits")
+        eligible, all_jobs = targeted_north_inputs(clusters, c)
+    else:
+        eligible = np.arange(len(clusters))
+        all_jobs = jobs_for(c, tracer)
     indices = np.sort(np.random.default_rng(seed).choice(
-        len(clusters), size=min(max_clusters, len(clusters)), replace=False))
+        eligible, size=min(max_clusters, len(eligible)), replace=False))
     clusters = clusters[indices]
-    all_jobs = jobs_for(c, tracer)
     jobs = select_jobs(all_jobs, max_data_jobs, max_random_jobs)
     partial = len(jobs) != len(all_jobs)
     output = Path(output).resolve()
@@ -61,13 +106,15 @@ def smoke_run(config, tracer, output, max_clusters=25, seed=42,
         raise ValueError("Smoke output must be separate from the production output tree")
     c["output_dir"] = str(output)
     c["serial_test"] = dict(seed=seed, cluster_indices=indices.tolist(),
-                            max_data_jobs=max_data_jobs, max_random_jobs=max_random_jobs)
+                            max_data_jobs=max_data_jobs, max_random_jobs=max_random_jobs,
+                            targeted_north=targeted_north)
     sig, manifest = signature(c, jobs, tracer)
     report = dict(signature=sig, tracer=tracer, seed=seed,
                   clusters_available=available_clusters, clusters_selected=len(clusters),
                   cluster_ids=[str(x) for x in clusters["ID"]],
                   available_tasks=len(all_jobs), selected_tasks=len(jobs),
                   partial_inputs=partial, dry_run=dry_run)
+    report.update(targeted_north=targeted_north, clusters_eligible=len(eligible))
     print(json.dumps(report, indent=2), flush=True)
     if partial:
         print("WARNING: PARTIAL INPUTS. Counts, coverage and densities are NOT "
@@ -88,6 +135,8 @@ def smoke_run(config, tracer, output, max_clusters=25, seed=42,
             total += stats
             audit.update(kind=job["kind"], path=job["path"],
                          elapsed_seconds=time.monotonic() - task_start)
+            if "start" in job:
+                audit.update(start=job["start"], stop=job["stop"])
             audits.append(audit)
             print(f"Task {i+1}/{len(jobs)} {job['kind']}: "
                   f"{audit['input_rows']} rows, {audit['selected_rows']} selected, "
@@ -129,11 +178,13 @@ def main():
     p.add_argument("--max-random-jobs", type=int, default=0, help="0=all random chunks")
     p.add_argument("--output", type=Path)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--targeted-north", action="store_true",
+                   help="Use known-good north sweep, interior clusters and one complete random realization")
     a = p.parse_args()
     output = a.output or ROOT / "local_overdensity/dr9_outputs/section4_smoke" / (
         a.tracer + "_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%f"))
     smoke_run(a.config, a.tracer, output, a.max_clusters, a.seed,
-              a.max_data_jobs, a.max_random_jobs, a.dry_run)
+              a.max_data_jobs, a.max_random_jobs, a.dry_run, a.targeted_north)
 
 
 if __name__ == "__main__":

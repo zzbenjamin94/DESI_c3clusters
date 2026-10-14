@@ -25,6 +25,29 @@ columns have units h^2 Mpc^-2, while E_local is dimensionless.
 
 ## NERSC serial execution
 
+### Recommended targeted test
+
+Use --targeted-north WITHOUT task limits. It selects clusters with their
+entire 10 h^-1 Mpc spherical aperture inside RA 130--140, Dec 45--50,
+and inside the standard northern ownership region. It reads that one
+sweep and its photo-z file, plus every chunk of randoms-north-1-0.fits.
+Random density is 2500 deg^-2, not the density of all discovered files.
+The actual number of clusters may be below --max-clusters; zero eligible
+clusters is an explicit error. No southern files are needed for this test.
+Rectangle containment does not guarantee unmasked coverage: inspect the
+measured coverage and valid flags. The test remains a validation sample.
+
+```bash
+time srun -n 1 -c 1 "$CONDA_PREFIX/bin/python" \
+  local_overdensity/run_environment_serial_test.py \
+  --config local_overdensity/environment_config.example.json \
+  --tracer dr9 --targeted-north --max-clusters 25 --seed 42
+```
+
+Add --dry-run to inspect selected cluster IDs and task counts before running.
+
+### Untargeted execution-only test
+
 From /global/homes/z/zzhang13/DESI/Projection:
 
 ```bash
