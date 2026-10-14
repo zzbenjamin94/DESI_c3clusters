@@ -18,5 +18,7 @@ case "$ENV_TRACER" in dr9|bgs) ;; *) echo "Invalid ENV_TRACER"; exit 2 ;; esac
 started=$SECONDS
 trap 'echo "Elapsed seconds: $((SECONDS - started))"' EXIT
 # Walltime is a starting budget, not a benchmark or completeness guarantee.
-srun -n 32 -c 1 python -u "local_overdensity/measure_${ENV_TRACER}_environment_mpi.py" \
-    --config local_overdensity/environment_config.json --mpi --resume
+srun --export=ALL -n 32 -c 1 "$CONDA_PREFIX/bin/python" -u \
+  "local_overdensity/measure_${ENV_TRACER}_environment_mpi.py" \
+  --config local_overdensity/environment_config.example.json \
+  --mpi --resume
