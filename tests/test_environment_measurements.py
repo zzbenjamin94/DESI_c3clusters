@@ -51,7 +51,8 @@ def fixture(root):
                  "TARGETID":np.arange(n),"PROB_OBS":np.ones(n),"GOOD":np.ones(n,bool)})
     bgs.write(root/"bgs.fits", overwrite=True)
     random = Table({"RA":galaxy_ra,"DEC":np.zeros(n),"Z":np.repeat(z,4),
-                    "AREA_DEG2":np.full(n,0.01),"VOLUME_HMPC3":np.full(n,10.)})
+                    "AREA_DEG2":np.full(n,0.01),"VOLUME_HMPC3":np.full(n,10.),
+                    "MASKBITS":np.zeros(n,dtype=int)})
     random.write(root/"random.fits", overwrite=True)
     Table({"z":[0.,1.],"LF_WEIGHT":[1.,1.]}).write(root/"lf.csv",format="ascii.csv",overwrite=True)
     Table({"z":[0.,1.],"NBAR":[0.1,0.1]}).write(root/"nbar.csv",format="ascii.csv",overwrite=True)
@@ -71,6 +72,30 @@ def fixture(root):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_shared_imaging_mask(self):
+        from local_overdensity.environment_catalogs import imaging_selection, photo_selection
+        with tempfile.TemporaryDirectory() as tmp:
+            c = fixture(tmp)
+            c["dr9"]["maskbits_reject"] = 12290
+            flags = [0, 2, 4096, 8192, 4098, 4, 6, 0, 0, 0, 0, 0]
+            expected = np.array([True, False, False, False, False, True,
+                                 False, True, True, True, True, True])
+            table = Table.read(Path(tmp)/"north/sweep-test.fits")
+            table["MASKBITS"] = flags
+            np.testing.assert_array_equal(photo_selection(table, c["dr9"]), expected)
+            random = Table.read(Path(tmp)/"random.fits")
+            random["MASKBITS"] = flags
+            np.testing.assert_array_equal(imaging_selection(random, c["dr9"]), expected)
+            random.write(Path(tmp)/"random.fits", overwrite=True)
+            clusters = load_clusters(c["cluster_catalog"])
+            for tracer in ("dr9", "bgs"):
+                jobs = [j for j in jobs_for(c, tracer) if j["kind"] == "random"]
+                count = sum(process(j, clusters, c, tracer)[1]["selected_rows"] for j in jobs)
+                self.assertEqual(count, expected.sum() if tracer == "dr9" else len(random))
+            random.remove_column("MASKBITS")
+            with self.assertRaisesRegex(ValueError, "MASKBITS"):
+                imaging_selection(random, c["dr9"])
+
     def test_normalization_and_edges(self):
         for width in (1.,3.,8.):
             area = kernel_areas(width)

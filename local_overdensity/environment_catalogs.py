@@ -67,6 +67,13 @@ def curve(path, z, value_column):
     return np.interp(z, x, y)
 
 
+def imaging_selection(table, config):
+    """Apply the same DR9 MASKBITS veto to galaxies and random points."""
+    if "MASKBITS" not in table.colnames:
+        raise ValueError("DR9 galaxies and randoms must contain MASKBITS")
+    return (np.asarray(table["MASKBITS"], np.int64) & int(config["maskbits_reject"])) == 0
+
+
 def photo_selection(table, config):
     # Required fields are checked explicitly; never silently skip a missing cut.
     mask = np.ones(len(table), bool)
@@ -80,7 +87,7 @@ def photo_selection(table, config):
     with np.errstate(divide="ignore", invalid="ignore"):
         mag = dereddened_mag(table, "R")
     mask &= np.isfinite(mag) & (mag < config["r_mag_limit"])
-    mask &= (np.asarray(table["MASKBITS"], np.int64) & int(config["maskbits_reject"])) == 0
+    mask &= imaging_selection(table, config)
     if config.get("gr_max") is not None:
         with np.errstate(divide="ignore", invalid="ignore"):
             g = dereddened_mag(table, "G")

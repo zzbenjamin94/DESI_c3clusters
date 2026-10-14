@@ -12,8 +12,11 @@
     "lf_curve": null,
     "r_mag_limit": null,
     "gr_max": null,
-    "maskbits_reject": null,
-    "random_globs": null,
+    "maskbits_reject": 12290,
+    "random_globs": [
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/north/randoms/randoms-north-*-*.fits",
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/south/randoms/randoms-south-*-*.fits"
+    ],
     "random_measure_column": "AREA_DEG2",
     "input_selection_confirmed": false
   },

@@ -12,6 +12,7 @@ from astropy.table import Table
 from local_overdensity.environment_config import load_config
 from local_overdensity.environment_catalogs import (
     discover, fits_chunks, load_clusters, load_photoz, photo_indices, photo_selection, curve,
+    imaging_selection,
 )
 from local_overdensity.environment_accumulators import Accumulator, select_bgs
 from local_overdensity.finalize_environment import finalize
@@ -81,6 +82,8 @@ def process(job, clusters, c, tracer):
     for table in chunks():
         audit["input_rows"] += len(table)
         if job["kind"] == "random":
+            if tracer == "dr9":
+                table = table[imaging_selection(table, c["dr9"])]
             if tracer == "bgs":
                 z = np.asarray(table["Z"], float)
                 if np.any(~np.isfinite(z)) or np.any(z <= 0):
