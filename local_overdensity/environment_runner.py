@@ -21,9 +21,15 @@ from local_overdensity.finalize_environment import finalize
 def jobs_for(c, tracer):
     jobs = []
     t = c[tracer]
+    native = tracer == "dr9" and t.get("photoz_mode") == "gaussian_fits"
     if tracer == "dr9":
-        for directory, pdf_dir in zip(t["sweep_dirs"], t["photoz_dirs"]):
+        for region_index, (directory, pdf_dir) in enumerate(zip(t["sweep_dirs"], t["photoz_dirs"])):
             for path in discover([str(Path(directory) / "sweep-*.fits")]):
+                if native:
+                    jobs.append({"kind": "data", "path": path,
+                                 "region": t["regions"][region_index],
+                                 "photoz": str(Path(pdf_dir) / (Path(path).stem + "-pz.fits"))})
+                    continue
                 jobs.append({"kind": "data", "path": path,
                              "pdf": str(Path(pdf_dir) / (Path(path).stem + ".npz"))})
     else:
@@ -33,23 +39,37 @@ def jobs_for(c, tracer):
             for start in range(0, n, c["chunk_rows"]):
                 jobs.append({"kind": "data", "path": path, "start": start,
                              "stop": min(start+c["chunk_rows"], n)})
+    random_info = {}
+    if native:
+        import re
+        for region, pattern in zip(t["regions"], t["random_globs"]):
+            paths = discover([pattern])
+            if any(re.fullmatch(f"randoms-{region}-1-[0-9]+.fits", Path(p).name) is None for p in paths):
+                raise ValueError("Only documented DR9 seed-1 complete realizations are supported")
+            for p in paths:
+                random_info[p] = (region, t["random_density_per_realization"] * len(paths))
     for path in discover(t["random_globs"]):
         with fits.open(path, memmap=True) as f:
             n = len(f[1].data)
         for start in range(0, n, c["chunk_rows"]):
             jobs.append({"kind": "random", "path": path, "start": start,
                          "stop": min(start+c["chunk_rows"], n)})
+            if native:
+                jobs[-1].update(region=random_info[path][0], density=random_info[path][1])
     if not jobs:
         raise ValueError("Empty input manifest")
     return jobs
 
 
 def signature(c, jobs, tracer):
-    paths = {str(Path(c["cluster_catalog"]).resolve()), c[tracer]["lf_curve"]}
+    paths = {str(Path(c["cluster_catalog"]).resolve())}
+    if c[tracer].get("lf_curve"):
+        paths.add(c[tracer]["lf_curve"])
     if tracer == "bgs":
         paths.add(c[tracer]["nbar_curve"])
     paths.update(j["path"] for j in jobs)
     paths.update(j["pdf"] for j in jobs if "pdf" in j)
+    paths.update(j["photoz"] for j in jobs if "photoz" in j)
     inputs = {str(Path(p).resolve()): [Path(p).stat().st_size, Path(p).stat().st_mtime_ns]
               for p in sorted(paths)}
     code = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -66,12 +86,17 @@ def signature(c, jobs, tracer):
 def process(job, clusters, c, tracer):
     accumulator = Accumulator(clusters, c, tracer)
     audit = {"input_rows": 0, "selected_rows": 0}
+    native = tracer == "dr9" and c["dr9"].get("photoz_mode") == "gaussian_fits"
     photo, lookup, lf = None, None, None
     if "pdf" in job:
         photo, lookup = load_photoz(job["pdf"])
         lf = curve(c["dr9"]["lf_curve"], photo["z_grid"], "LF_WEIGHT")
 
     def chunks():
+        if "photoz" in job:
+            from local_overdensity.environment_dr9_native import paired_chunks
+            yield from paired_chunks(job, c["chunk_rows"])
+            return
         if "start" in job:
             with fits.open(job["path"], memmap=True) as f:
                 yield Table(f[1].data[job["start"]:job["stop"]], copy=True)
@@ -81,9 +106,16 @@ def process(job, clusters, c, tracer):
 
     for table in chunks():
         audit["input_rows"] += len(table)
+        if native:
+            from local_overdensity.environment_dr9_native import ownership, coverage
+            keep = ownership(table, job["region"]) & coverage(table)
+            audit["outside_ownership_or_coverage"] = audit.get("outside_ownership_or_coverage", 0) + int((~keep).sum())
+            table = table[keep]
         if job["kind"] == "random":
             if tracer == "dr9":
                 table = table[imaging_selection(table, c["dr9"])]
+                if native:
+                    table[c["dr9"]["random_measure_column"]] = np.full(len(table), 1/job["density"])
             if tracer == "bgs":
                 z = np.asarray(table["Z"], float)
                 if np.any(~np.isfinite(z)) or np.any(z <= 0):
@@ -92,6 +124,16 @@ def process(job, clusters, c, tracer):
             audit["selected_rows"] += len(table)
         elif tracer == "dr9":
             table = table[photo_selection(table, c["dr9"])]
+            if native:
+                mean, sigma = np.asarray(table["Z_PHOT_MEAN"], float), np.asarray(table["Z_PHOT_STD"], float)
+                valid = np.isfinite(mean) & (mean >= 0) & np.isfinite(sigma) & (sigma > 0)
+                audit["photoz_eligible_rows"] = audit.get("photoz_eligible_rows", 0) + len(table)
+                audit["invalid_photoz_rows"] = audit.get("invalid_photoz_rows", 0) + int((~valid).sum())
+                table = table[valid]
+                table["ENV_WEIGHT"] = np.ones(len(table))
+                accumulator.add(table)
+                audit["selected_rows"] += len(table)
+                continue
             idx = photo_indices(table, lookup)
             primary = photo["PRIMARY"][idx]
             table, idx = table[primary], idx[primary]

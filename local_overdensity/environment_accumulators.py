@@ -45,7 +45,14 @@ class Accumulator:
                 continue
             weight = np.asarray(table["ENV_WEIGHT"], float)[indices]
             if self.tracer == "dr9":
-                weight = weight * pdf_integral(z_grid, pdf[indices], self.z[i], lf_weight=lf_pdf)
+                if t.get("photoz_mode") == "gaussian_fits":
+                    from local_overdensity.environment_dr9_native import gaussian_probability
+                    weight *= gaussian_probability(
+                        np.asarray(table["Z_PHOT_MEAN"], float)[indices],
+                        np.asarray(table["Z_PHOT_STD"], float)[indices],
+                        self.z[i], t["photoz_half_width"])
+                else:
+                    weight = weight * pdf_integral(z_grid, pdf[indices], self.z[i], lf_weight=lf_pdf)
             self.stats[i, :, 0] += ((kernel > 0) & (weight > 0)).sum(axis=1)
             weighted = kernel * weight
             self.stats[i, :, 1] += weighted.sum(axis=1)
