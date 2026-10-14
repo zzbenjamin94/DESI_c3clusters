@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
 #SBATCH --cpus-per-task=1
-#SBATCH --time=12:00:00
+#SBATCH --time=4:00:00
 #SBATCH --job-name=richness-lognormal
 #SBATCH --output=richness-lognormal-%j.log
 
