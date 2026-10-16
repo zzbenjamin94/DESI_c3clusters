@@ -20,6 +20,8 @@ PYTHON="${CONDA_PREFIX:?Conda environment missing}/bin/python"
 CONFIG="${ENV_CONFIG:-local_overdensity/environment_config.example.json}"
 "$PYTHON" -c 'import numpy, scipy, astropy; from mpi4py import MPI; print(MPI.Get_library_version())'
 # Fail before launching workers if configuration/selection remains unconfirmed.
-"$PYTHON" local_overdensity/measure_bgs_environment_mpi.py --config "$CONFIG" --dry-run
+# This is one ordinary process, not the subsequent 64-rank srun step.
+# Scope the override to preflight; retain SLURM_NTASKS for the MPI launch.
+env SLURM_NTASKS=1 "$PYTHON" local_overdensity/measure_bgs_environment_mpi.py --config "$CONFIG" --dry-run
 srun --export=ALL -n "$SLURM_NTASKS" -c 1 "$PYTHON" -u \
   local_overdensity/measure_bgs_environment_mpi.py --config "$CONFIG" --mpi --resume
