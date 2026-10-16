@@ -127,13 +127,17 @@ def main():
             sign=1 if r['model']=='mixture' else -1
             row['delta_AIC_mixture_minus_lognormal']=sign*(r['AIC']-partner['AIC'])
             row['delta_BIC_mixture_minus_lognormal']=sign*(r['BIC']-partner['BIC'])
+        for param,q in r['posterior'].items():
+            for statistic,value in q.items():
+                row[f'{param}_{statistic}']=value
         rows.append(row)
         for param,q in r['posterior'].items(): parameters.append(dict(task=task,parameter=param,**q))
     pd.DataFrame(rows).to_csv(a.output/'fit_statistics.csv',index=False)
     pd.DataFrame(parameters).to_csv(a.output/'posterior_parameters.csv',index=False)
     pd.DataFrame([c for c,_ in cells]).to_csv(a.output/'cell_counts.csv',index=False)
     plt.rcParams.update({'font.family':'serif','mathtext.fontset':'stix','font.size':12})
-    fig,axes=plt.subplots(3,4,figsize=(13,9),sharex=True,gridspec_kw={'hspace':.08,'wspace':.25})
+    nrich=len(edges)-1
+    fig,axes=plt.subplots(3,nrich,figsize=(3.5*nrich,9),sharex=True,gridspec_kw={'hspace':.08,'wspace':.25})
     lower=max(audit['rm_min'],1e-3)
     upper=min(audit['rm_max'] or np.inf,float(np.max(data['lambda_rm']))*1.05)
     hist_edges=np.geomspace(lower,upper,16)
@@ -147,7 +151,7 @@ def main():
         ax.yaxis.set_major_locator(MaxNLocator(4))
         ax.tick_params(labelsize=10)
         title=rf"${cell['spec_lo']:.1f}\leq\lambda_{{\rm spec}}<{cell['spec_hi']:.1f}$"+'\n'+rf"${cell['zlo']:.2f}\leq z<{cell['zhi']:.2f}$"
-        if cell['ix']==3: title=title.replace('<',r'\leq',1)
+        if cell['ix']==nrich-1: title=title.replace('<',r'\leq',1)
         ax.text(.04,.97,title,va='top',transform=ax.transAxes,fontsize=9)
         if cell['N']==0: continue
         counts=np.histogram(data['lambda_rm'][mask],hist_edges)[0]
@@ -185,7 +189,7 @@ def main():
         f,axs=plt.subplots(len(names),1,figsize=(8,3*len(names)),sharex=True,layout='constrained')
         for iz in range(3):
             for j,name in enumerate(names):
-                for ix in range(4):
+                for ix in range(nrich):
                     r=results.get(f'{model}_z{iz+1}_r{ix+1}')
                     if r is None: continue
                     q=r['posterior'][name]

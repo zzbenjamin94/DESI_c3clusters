@@ -91,15 +91,15 @@ def make_cells(data, edges=None):
     z=np.asarray(data['z'])
     if np.any((z<Z_EDGES[0]) | (z>=Z_EDGES[-1])):
         raise ValueError('Prepared sample extends outside [0.10,0.35); reprepare consistently')
-    edges=np.quantile(spec,np.linspace(0,1,5)) if edges is None else np.asarray(edges,float)
-    if len(edges)!=5 or not np.all(np.isfinite(edges)) or np.any(np.diff(edges)<=0):
-        raise ValueError('Require five strictly increasing richness edges; tied quartiles need manual edges')
+    edges=np.quantile(spec,np.linspace(0,1,4)) if edges is None else np.asarray(edges,float)
+    if len(edges)<3 or not np.all(np.isfinite(edges)) or np.any(np.diff(edges)<=0):
+        raise ValueError('Require strictly increasing richness edges; tied quantiles need manual edges')
     if edges[0]>spec.min() or edges[-1]<spec.max():
         raise ValueError('Richness edges must encompass the full prepared sample')
     cells=[]
     for iz,(zl,zh) in enumerate(zip(Z_EDGES[:-1],Z_EDGES[1:])):
         for ix,(lo,hi) in enumerate(zip(edges[:-1],edges[1:])):
-            mask=(z>=zl)&(z<zh)&(spec>=lo)&((spec<=hi) if ix==3 else (spec<hi))
+            mask=(z>=zl)&(z<zh)&(spec>=lo)&((spec<=hi) if ix==len(edges)-2 else (spec<hi))
             cells.append((dict(cell=f'z{iz+1}_r{ix+1}',iz=iz,ix=ix,zlo=float(zl),zhi=float(zh),
                                spec_lo=float(lo),spec_hi=float(hi),N=int(mask.sum())),mask))
     return edges,cells

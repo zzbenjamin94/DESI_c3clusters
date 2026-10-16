@@ -11,7 +11,7 @@ class CellTests(unittest.TestCase):
     def test_partition(self):
         data=dict(lambda_spec=np.tile(np.arange(1.,9.),3),z=np.repeat([.1,.18,.24],8))
         edges,cells=make_cells(data)
-        self.assertEqual(len(cells),12)
+        self.assertEqual(len(cells),9)
         self.assertTrue(np.all(np.sum([m for c,m in cells],axis=0)==1))
         self.assertEqual(sum(c['N'] for c,m in cells),24)
 

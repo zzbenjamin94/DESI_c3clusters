@@ -1,6 +1,6 @@
-"""Run 12 independent conditional-distribution cells for each model.
+"""Run nine independent conditional-distribution cells for each model.
 
-MPI distributes independent cells, not walkers. At most 24 ranks are useful
+MPI distributes independent cells, not walkers. At most 18 ranks are useful
 for both models. Original global chains are never read or overwritten.
 """
 import argparse
@@ -128,7 +128,7 @@ def main():
     p.add_argument('--data',type=Path,default=ROOT/'catalogs/conditional_richness/overnight_sample.npz')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--model',choices=['both','lognormal','mixture'],default='both')
-    p.add_argument('--richness-edges',type=float,nargs=5)
+    p.add_argument('--richness-edges',type=float,nargs='+',help='Common edges; default: three full-sample tercile bins')
     p.add_argument('--walkers',type=int,default=48)
     p.add_argument('--ensembles',type=int,default=2)
     p.add_argument('--steps',type=int,default=5000)
