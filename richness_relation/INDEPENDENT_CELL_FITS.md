@@ -47,12 +47,15 @@ python richness_relation/fit_richness_cells_mpi.py \
 sbatch richness_relation/run_richness_cells.slurm
 ```
 
-One node, 18 ranks, one independent fit per rank, 48 walkers and two independent
-ensembles per fit, 5000 steps with 1000 burn-in. Four hours is a requested budget,
+Two nodes, 36 ranks (18 per node), 48 walkers and two independent
+ensembles per fit, 5000 steps with 1000 burn-in. Only 18 ranks have independent
+fits to process; the other 18 wait. This does not double sampling throughput.
+Ten hours is a requested budget,
 NOT a benchmarked runtime or convergence guarantee. On successful sampling,
 the job saves quick plots/tables, then runs 200 refitted bootstrap simulations
-per fit using 18 local workers to populate p-values in the final tables.
-Check the job exit and logs; the bootstrap also consumes the four-hour budget.
+per fit using 18 local workers on one node to populate p-values in the final tables.
+The plotting program is not MPI-aware: never launch two copies into one output
+directory. Check the job exit and logs; bootstrap uses the same ten-hour budget.
 The new default cell_fits_3x3 directory avoids overwriting older 12-cell runs.
 Changing CELL_OUTPUT via sbatch --export=ALL,CELL_OUTPUT=... chooses a fresh root.
 
