@@ -39,8 +39,12 @@ The nbar_curve is now optional; null omits E_global, retaining E_local.
 The requested quality mode excludes ZWARN=99 and the 999999 placeholder;
 it is NOT equivalent to requiring ZWARN=0. Z=999999 is also rejected before
 distance calculations. Other warning values are retained by this requested
-selection and require scientific review. The input_selection_confirmed flag
-remains false pending reconciliation of noveto data with vetoed randoms.
+selection and require scientific review. The example now pairs vetoed
+BGS_BRIGHT_full.dat.fits with BGS_BRIGHT_*_full.ran.fits from the same release.
+The user has selected this matched veto convention, so input_selection_confirmed
+is true. Preflight checks data headers for required coordinate, redshift,
+quality and completeness columns; it does not establish scientific validity
+of every row or independently reproduce the release vetoes.
 
 Use the full tracer catalog, not the cluster-aperture matched table. Specify actual redshift column and a boolean eligible column (or a categorical quality column plus allowed values); a derived boolean column should encode any multi-column spectroscopic/imaging selection. It is NOT sufficient to assume PROB_OBS establishes redshift quality. Retain finite 0 < PROB_OBS <= 1, finite positive redshift, and the quality selection. Invalid rows are excluded before measurement. The input tracer catalog must have unique targets across data files/chunks.
 

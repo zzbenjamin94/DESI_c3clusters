@@ -28,7 +28,7 @@
     "input_selection_confirmed": true
   },
   "bgs": {
-    "data_globs": ["/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSScats/v2.1/BGS_BRIGHT_full_noveto.dat.fits"],
+    "data_globs": ["/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSScats/v2.1/BGS_BRIGHT_full.dat.fits"],
     "redshift_column": "Z",
     "quality_column": "ZWARN",
     "quality_values": [99, 999999],
@@ -41,6 +41,6 @@
     "random_mode": "angular",
     "random_density_per_realization": 2500,
     "random_measure_column": "AREA_DEG2",
-    "input_selection_confirmed": false
+    "input_selection_confirmed": true
   }
 }

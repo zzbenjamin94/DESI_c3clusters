@@ -35,6 +35,10 @@ def jobs_for(c, tracer):
     else:
         for path in discover(t["data_globs"]):
             with fits.open(path, memmap=True) as f:
+                required = {"RA", "DEC", "PROB_OBS", t.get("redshift_column", "Z"), t["quality_column"]}
+                missing = required - set(f[1].columns.names)
+                if missing:
+                    raise ValueError(f"BGS data {path} missing columns: {sorted(missing)}")
                 n = len(f[1].data)
             for start in range(0, n, c["chunk_rows"]):
                 jobs.append({"kind": "data", "path": path, "start": start,
