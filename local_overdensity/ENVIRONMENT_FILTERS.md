@@ -27,9 +27,24 @@ Raw survey randoms generally need calibration/preparation before use here. They 
 
 ## DR2 BGS contract
 
+Current example uses angular randoms: RA/DEC only, with 2500 points/deg^2
+per complete realization. Each point receives area 1/(2500*N_files), not
+1/(2500*N_chunks). The accumulator converts area to comoving transverse area
+at the cluster redshift and multiplies by twice the cylinder half-length.
+This replaces the volume-random contract above when random_mode=angular.
+No artificial redshifts are sampled: this measures geometric volume assuming
+the same angular footprint along the cylinder and adequate radial support.
+It does not model a varying n(z) or correct redshift-dependent selection.
+The nbar_curve is now optional; null omits E_global, retaining E_local.
+The requested quality mode excludes ZWARN=99 and the 999999 placeholder;
+it is NOT equivalent to requiring ZWARN=0. Z=999999 is also rejected before
+distance calculations. Other warning values are retained by this requested
+selection and require scientific review. The input_selection_confirmed flag
+remains false pending reconciliation of noveto data with vetoed randoms.
+
 Use the full tracer catalog, not the cluster-aperture matched table. Specify actual redshift column and a boolean eligible column (or a categorical quality column plus allowed values); a derived boolean column should encode any multi-column spectroscopic/imaging selection. It is NOT sufficient to assume PROB_OBS establishes redshift quality. Retain finite 0 < PROB_OBS <= 1, finite positive redshift, and the quality selection. Invalid rows are excluded before measurement. The input tracer catalog must have unique targets across data files/chunks.
 
-ENV_WEIGHT = LF_WEIGHT(z_g)/PROB_OBS, optionally multiplied by an explicitly specified additional weight. This does not claim that PROB_OBS includes redshift-success corrections. BGS LF CSV has z,LF_WEIGHT. `nbar_curve` CSV has z,NBAR, with **weighted** mean tracer density in h^3 Mpc^-3 for the same selection and weights. It supports the Section 4 global E = n/nbar-1; the local-background E is also saved separately. Both use the configured cylinder half-length. Random coverage corrects density at the aperture level, not with each cluster's inner-aperture geometric weight.
+ENV_WEIGHT = 1/PROB_OBS only. No LF or additional weight (including WEIGHT_ZFAIL) is applied to BGS environment counts. Legacy lf_curve and additional_weight_column settings are ignored for this tracer. This does not claim that PROB_OBS includes redshift-success corrections. Spectroscopic-richness LF weighting is unchanged. The flux-limited environment tracer can therefore retain redshift-dependent luminosity selection. `nbar_curve` CSV has z,NBAR, with **weighted** mean tracer density in h^3 Mpc^-3 for the same selection and weights. It supports the Section 4 global E = n/nbar-1; the local-background E is also saved separately. Both use the configured cylinder half-length (60 comoving h^-1 Mpc in the example). Random coverage corrects density at the aperture level, not with each cluster's inner-aperture geometric weight.
 
 ## Run and restart
 

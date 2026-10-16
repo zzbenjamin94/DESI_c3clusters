@@ -16,7 +16,7 @@ def load_config(path, tracer):
     native = tracer == "dr9" and t.get("photoz_mode") == "gaussian_fits"
     required += (["sweep_dirs", "photoz_dirs", "r_mag_limit", "maskbits_reject"] + ([] if native else ["lf_curve"])
                  if tracer == "dr9" else ["data_globs", "quality_column", "quality_values",
-                                           "pi_half_hmpc", "lf_curve", "nbar_curve"])
+                                           "pi_half_hmpc"])
     for key in required:
         if t.get(key) is None:
             raise ValueError(f"Set {tracer}.{key}; see ENVIRONMENT_FILTERS.md")
@@ -31,4 +31,11 @@ def load_config(path, tracer):
             raise ValueError("Set positive random density and photo-z half width")
     if tracer == "bgs" and t["pi_half_hmpc"] <= 0:
         raise ValueError("Cylinder half-length must be positive")
+    if tracer == "bgs":
+        if t.get("quality_mode", "include") not in ("include", "exclude"):
+            raise ValueError("quality_mode must be include or exclude")
+        if t.get("random_mode", "volume") not in ("angular", "volume"):
+            raise ValueError("random_mode must be angular or volume")
+        if t.get("random_mode") == "angular" and t.get("random_density_per_realization", 0) <= 0:
+            raise ValueError("Set positive BGS random density per realization")
     return c

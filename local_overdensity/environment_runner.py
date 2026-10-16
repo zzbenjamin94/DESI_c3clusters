@@ -48,7 +48,8 @@ def jobs_for(c, tracer):
                 raise ValueError("Only documented DR9 seed-1 complete realizations are supported")
             for p in paths:
                 random_info[p] = (region, t["random_density_per_realization"] * len(paths))
-    for path in discover(t["random_globs"]):
+    random_paths = discover(t["random_globs"])
+    for path in random_paths:
         with fits.open(path, memmap=True) as f:
             n = len(f[1].data)
         for start in range(0, n, c["chunk_rows"]):
@@ -56,6 +57,8 @@ def jobs_for(c, tracer):
                          "stop": min(start+c["chunk_rows"], n)})
             if native:
                 jobs[-1].update(region=random_info[path][0], density=random_info[path][1])
+            elif tracer == "bgs" and t.get("random_mode") == "angular":
+                jobs[-1]["density"] = t["random_density_per_realization"] * len(random_paths)
     if not jobs:
         raise ValueError("Empty input manifest")
     return jobs
@@ -63,9 +66,9 @@ def jobs_for(c, tracer):
 
 def signature(c, jobs, tracer):
     paths = {str(Path(c["cluster_catalog"]).resolve())}
-    if c[tracer].get("lf_curve"):
+    if tracer == "dr9" and c[tracer].get("lf_curve"):
         paths.add(c[tracer]["lf_curve"])
-    if tracer == "bgs":
+    if tracer == "bgs" and c["bgs"].get("nbar_curve"):
         paths.add(c[tracer]["nbar_curve"])
     paths.update(j["path"] for j in jobs)
     paths.update(j["pdf"] for j in jobs if "pdf" in j)
@@ -116,7 +119,9 @@ def process(job, clusters, c, tracer):
                 table = table[imaging_selection(table, c["dr9"])]
                 if native:
                     table[c["dr9"]["random_measure_column"]] = np.full(len(table), 1/job["density"])
-            if tracer == "bgs":
+            if tracer == "bgs" and c["bgs"].get("random_mode") == "angular":
+                table[c["bgs"]["random_measure_column"]] = np.full(len(table), 1 / job["density"])
+            elif tracer == "bgs":
                 z = np.asarray(table["Z"], float)
                 if np.any(~np.isfinite(z)) or np.any(z <= 0):
                     raise ValueError("Spectroscopic randoms need finite positive Z")
@@ -143,10 +148,10 @@ def process(job, clusters, c, tracer):
             accumulator.add(table, pdf=photo["pdf"][idx], z_grid=photo["z_grid"], lf_pdf=lf)
             audit["selected_rows"] += len(table)
         else:
-            # Discard only objects beyond every cylinder before LF interpolation.
+            # Discard objects beyond every cylinder before spatial matching.
             z = np.asarray(table[c["bgs"].get("redshift_column", "Z")], float)
             from astropy.cosmology import Planck18
-            finite = np.isfinite(z) & (z > 0)
+            finite = np.isfinite(z) & (z > 0) & (z != 999999)
             distance = np.full(len(z), np.inf)
             distance[finite] = Planck18.comoving_distance(z[finite]).value * Planck18.h
             reach = c["bgs"]["pi_half_hmpc"]

@@ -22,7 +22,8 @@ class Accumulator:
             return
         vectors, tree = sky_tree(table)
         t = self.config[self.tracer]
-        if self.tracer == "bgs":
+        angular_random = random and self.tracer == "bgs" and t.get("random_mode") == "angular"
+        if self.tracer == "bgs" and not angular_random:
             chi = Planck18.comoving_distance(np.asarray(table["Z"], float)).value * Planck18.h
         if random:
             measure = np.asarray(table[t["random_measure_column"]], float)
@@ -35,11 +36,13 @@ class Accumulator:
             chord = np.linalg.norm(vectors[indices] - center, axis=1)
             radius = 2*np.arcsin(np.clip(chord/2, 0, 1)) * self.dm[i]
             kernel = radial_kernels(radius, self.config["gaussian_width_hmpc"])
-            if self.tracer == "bgs":
+            if self.tracer == "bgs" and not angular_random:
                 kernel *= (abs(chi[indices] - self.chi[i]) < t["pi_half_hmpc"])
             if random:
                 # Photometric random weights represent deg^2; convert to comoving area.
                 unit = (np.pi/180*self.dm[i])**2 if self.tracer == "dr9" else 1.0
+                if angular_random:
+                    unit = (np.pi/180*self.dm[i])**2 * (2*t["pi_half_hmpc"])
                 self.stats[i, :, 3] += kernel @ (measure[indices] * unit)
                 self.stats[i, :, 4] += (kernel > 0).sum(axis=1)
                 continue
@@ -64,17 +67,14 @@ def select_bgs(table, config):
     p = np.ma.asarray(table["PROB_OBS"], float).filled(np.nan)
     z = np.ma.asarray(table[t.get("redshift_column", "Z")], float).filled(np.nan)
     quality = np.isin(table[t["quality_column"]], t["quality_values"])
-    keep = np.isfinite(p) & (p > 0) & (p <= 1) & np.isfinite(z) & (z > 0) & quality
+    if t.get("quality_mode", "include") == "exclude":
+        quality = ~quality
+    keep = np.isfinite(p) & (p > 0) & (p <= 1) & np.isfinite(z) & (z > 0) & (z != 999999) & quality
     out = table[keep].copy()
     out["Z"] = z[keep]
-    # LF curve must cover retained tracer redshifts; caller should provide the
-    # intended science tracer selection, not extrapolate beyond a calibrated LF.
     if len(out):
-        lf = curve(t["lf_curve"], z[keep], "LF_WEIGHT")
-        out["ENV_WEIGHT"] = lf / p[keep]
-        extra = t.get("additional_weight_column")
-        if extra:
-            out["ENV_WEIGHT"] *= np.asarray(out[extra], float)
+        # BGS environment counts use only individual sampling completeness.
+        out["ENV_WEIGHT"] = 1.0 / p[keep]
         if np.any(~np.isfinite(out["ENV_WEIGHT"])) or np.any(out["ENV_WEIGHT"] <= 0):
             raise ValueError("Invalid BGS environment weights")
     return out
