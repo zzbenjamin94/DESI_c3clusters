@@ -29,7 +29,7 @@
   },
   "bgs": {
     "data_globs": ["/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSScats/v2.1/BGS_BRIGHT_full.dat.fits"],
-    "redshift_column": "Z",
+    "redshift_column": "Z_not4clus",
     "quality_column": "ZWARN",
     "quality_values": [99, 999999],
     "quality_mode": "exclude",
