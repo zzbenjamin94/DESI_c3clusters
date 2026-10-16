@@ -2,10 +2,11 @@
 #SBATCH --account=desi
 #SBATCH --constraint=cpu
 #SBATCH --qos=regular
-#SBATCH --nodes=1
-#SBATCH --ntasks=32
+#SBATCH --nodes=4
+#SBATCH --ntasks=64
+#SBATCH --ntasks-per-node=16
 #SBATCH --cpus-per-task=1
-#SBATCH --time=14:00:00
+#SBATCH --time=22:00:00
 #SBATCH --job-name=section4-environment
 #SBATCH --output=section4-environment-%j.log
 
@@ -23,7 +24,7 @@ command -v srun
 : "${ENV_TRACER:?Submit with --export=ALL,ENV_TRACER=dr9 or ENV_TRACER=bgs}"
 case "$ENV_TRACER" in dr9|bgs) ;; *) echo "Invalid ENV_TRACER"; exit 2 ;; esac
 # Walltime is a starting budget, not a benchmark or completeness guarantee.
-srun --export=ALL -n 32 -c 1 "$PYTHON" -u \
+srun --export=ALL -n "$SLURM_NTASKS" -c 1 "$PYTHON" -u \
   "local_overdensity/measure_${ENV_TRACER}_environment_mpi.py" \
   --config local_overdensity/environment_config.example.json \
   --mpi --resume
