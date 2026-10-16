@@ -150,12 +150,18 @@ def main():
     results={}
     for root in a.fits:
         found=load_results(root,a.seed,audit)
-        if results.keys() & found.keys(): raise ValueError('Duplicate fit tasks across roots')
+        for task in results.keys() & found.keys():
+            old, new = results[task], found[task]
+            if (old['samples'] is not None or new['samples'] is None
+                    or new.get('finalization', {}).get('source') != str(old['directory'].resolve())
+                    or old['config'] != new['config']):
+                raise ValueError(f'Duplicate task {task}; only a verified finalized replacement of incomplete outputs is allowed')
         results.update(found)
     for model in ('lognormal','mixture'):
         for mode in ('noz','z'):
             r=results[f'{model}_combined_{mode}']
-            if r['samples'] is None: raise ValueError('Completed posterior outputs required')
+            if r['samples'] is None:
+                raise ValueError(f"Completed posterior outputs required: {r['directory']}")
     a.output.mkdir(parents=True,exist_ok=False)
     report(data,results,a.output)
     if a.lognormal_choice and a.mixture_choice:
