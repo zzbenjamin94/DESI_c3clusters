@@ -10,7 +10,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FixedLocator, FuncFormatter, NullFormatter
 import numpy as np
-from scipy.stats import truncnorm
+from scipy.stats import gaussian_kde
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -46,20 +46,18 @@ def main():
     samples = samples[rng.choice(len(samples), min(2000, len(samples)), replace=False)]
     names = fit['parameter_names']
     mu = samples[:, names.index('ln_A'), None] + samples[:, names.index('B'), None]*np.log(grid/cfg.lambda_piv)
-    sigma = np.exp(samples[:, names.index('ln_sigma0'), None])
-    low = (np.log(cfg.rm_min)-mu)/sigma if cfg.rm_min > 0 else np.full_like(mu, -np.inf)
-    high = (np.log(cfg.rm_max)-mu)/sigma
-    # Expected log richness after the RM selection, not the untruncated median.
-    selected = np.exp(truncnorm.mean(low, high, loc=mu, scale=sigma))
     q = np.percentile(np.exp(mu), [16, 50, 84], axis=0)
-    qs = np.percentile(selected, [16, 50, 84], axis=0)
+    # Estimate density in the coordinates displayed on the logarithmic axes.
+    log_points = np.vstack([np.log10(x), np.log10(y)])
+    density = gaussian_kde(log_points)(log_points)
+    order = np.argsort(density)
     plt.rcParams.update({'font.family': 'serif', 'mathtext.fontset': 'stix', 'font.size': 12})
     fig, ax = plt.subplots(figsize=(7, 5.6))
-    ax.scatter(x, y, s=7, alpha=.045, color='0.25', edgecolors='none', rasterized=True)
-    ax.fill_between(grid, q[0], q[2], color='#215e91', alpha=.18, linewidth=0)
-    ax.plot(grid, q[1], color='#215e91', lw=2.5, label='Underlying log-linear relation')
-    ax.fill_between(grid, qs[0], qs[2], color='#ac4c35', alpha=.12, linewidth=0)
-    ax.plot(grid, qs[1], color='#ac4c35', lw=2.2, ls='--', label='Selection-adjusted geometric mean')
+    sc = ax.scatter(x[order], y[order], s=3, alpha=.6, c=density[order],
+                    cmap='viridis', edgecolors='none', rasterized=True)
+    ax.fill_between(grid, q[0], q[2], color='#cf573b', alpha=.35, linewidth=0,
+                    label='68% posterior interval', zorder=3)
+    ax.plot(grid, q[1], color='#982d20', lw=1.0, label='Log-linear model', zorder=4)
     if len(points):
         ax.errorbar(points[:,0], points[:,1], yerr=points[:,2:].T,
                     fmt='o', mfc='white', mec='black', ecolor='black',
@@ -74,12 +72,14 @@ def main():
         axis.set_major_formatter(FuncFormatter(lambda value, pos: f'{value:g}'))
         axis.set_minor_formatter(NullFormatter())
     ax.legend(loc='upper left', frameon=False, fontsize=10)
+    cbar = fig.colorbar(sc, ax=ax, pad=.025, fraction=.045)
+    cbar.set_label(r'Point density [dex$^{-2}$]')
     fig.tight_layout()
     save(fig, args.output, 'global_richness_relation_noz')
     np.savetxt(args.output/'binned_geometric_means.csv', points, delimiter=',',
                header='lambda_spec_geomean,lambda_RM_geomean,SEM_lower,SEM_upper', comments='')
-    np.savetxt(args.output/'posterior_relation.csv', np.column_stack([grid,q.T,qs.T]), delimiter=',',
-               header='lambda_spec,core_p16,core_p50,core_p84,selected_p16,selected_p50,selected_p84', comments='')
+    np.savetxt(args.output/'posterior_relation.csv', np.column_stack([grid,q.T]), delimiter=',',
+               header='lambda_spec,core_p16,core_p50,core_p84', comments='')
     print('Saved', args.output)
     print('Bands are 68% pointwise posterior intervals, not population scatter.')
     print('This uses the existing constant-scatter global fit; no new variable-scatter fit is performed.')
