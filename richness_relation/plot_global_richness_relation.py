@@ -38,9 +38,10 @@ def main():
         raise ValueError('This plot requires the no-evolution log-normal fit')
     if args.output.exists():
         raise FileExistsError('Choose a fresh output directory')
-    x, y = data['lambda_spec'], data['lambda_rm']
-    points = binned_mean_log(x, y, args.bins, args.min_count)
-    grid = np.geomspace(x.min(), x.max(), 250)
+    x, y = data['lambda_rm'], data['lambda_spec']
+    in_x_range = (x >= 20) & (x <= 100)
+    points = binned_mean_log(x[in_x_range], y[in_x_range], args.bins, args.min_count)
+    grid = np.geomspace(20, 600, 250)
     rng = np.random.default_rng(args.seed)
     samples = fit['samples']
     samples = samples[rng.choice(len(samples), min(2000, len(samples)), replace=False)]
@@ -55,18 +56,19 @@ def main():
     fig, ax = plt.subplots(figsize=(7, 5.6))
     sc = ax.scatter(x[order], y[order], s=3, alpha=.6, c=density[order],
                     cmap='viridis', edgecolors='none', rasterized=True)
-    ax.fill_between(grid, q[0], q[2], color='#cf573b', alpha=.35, linewidth=0,
+    # Swap the original conditional relation's coordinates, not its conditioning.
+    ax.fill_betweenx(grid, q[0], q[2], color='#cf573b', alpha=.35, linewidth=0,
                     label='68% posterior interval', zorder=3)
-    ax.plot(grid, q[1], color='#982d20', lw=1.0, label='Log-linear model', zorder=4)
+    ax.plot(q[1], grid, color='#982d20', lw=1.0, label='Log-linear model', zorder=4)
     if len(points):
         ax.errorbar(points[:,0], points[:,1], yerr=points[:,2:].T,
                     fmt='o', mfc='white', mec='black', ecolor='black',
-                    ms=6, capsize=3, lw=1.2, label='Binned geometric mean with SEM', zorder=5)
+                    ms=3, mew=.8, capsize=3, lw=1.2, label='Binned geometric mean with SEM', zorder=5)
     ax.set_xscale('log'); ax.set_yscale('log'); style(ax)
-    ax.set_xlabel(r'$\lambda_{\rm spec}$', fontsize=18)
-    ax.set_ylabel(r'$\lambda_{\rm RM}$', fontsize=18)
-    ax.set_xlim(x.min()/1.12, x.max()*1.12)
-    ax.set_ylim(min(y.min(),q[0].min())/1.15, max(y.max(),q[2].max())*1.15)
+    ax.set_xlabel(r'$\lambda_{\rm RM}$', fontsize=18)
+    ax.set_ylabel(r'$\lambda_{\rm spec}$', fontsize=18)
+    ax.set_xlim(20, 100)
+    ax.set_ylim(20, 600)
     for axis in (ax.xaxis, ax.yaxis):
         axis.set_major_locator(FixedLocator([1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]))
         axis.set_major_formatter(FuncFormatter(lambda value, pos: f'{value:g}'))
@@ -77,7 +79,7 @@ def main():
     fig.tight_layout()
     save(fig, args.output, 'global_richness_relation_noz')
     np.savetxt(args.output/'binned_geometric_means.csv', points, delimiter=',',
-               header='lambda_spec_geomean,lambda_RM_geomean,SEM_lower,SEM_upper', comments='')
+               header='lambda_RM_geomean,lambda_spec_geomean,SEM_lower,SEM_upper', comments='')
     np.savetxt(args.output/'posterior_relation.csv', np.column_stack([grid,q.T]), delimiter=',',
                header='lambda_spec,core_p16,core_p50,core_p84', comments='')
     print('Saved', args.output)
