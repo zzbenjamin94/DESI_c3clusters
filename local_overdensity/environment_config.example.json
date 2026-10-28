@@ -1,0 +1,46 @@
+{
+  "cluster_catalog": "catalogs/cluster_centers.fits",
+  "output_dir": "outputs",
+  "gaussian_width_hmpc": 2.8644943786043604,
+  "chunk_rows": 100000,
+  "dr9": {
+    "sweep_dirs": [
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/north/sweep/9.0",
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/south/sweep/9.0"
+    ],
+    "photoz_mode": "gaussian_fits",
+    "regions": ["north", "south"],
+    "photoz_half_width": 0.05,
+    "random_density_per_realization": 2500,
+    "photoz_dirs": [
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/north/sweep/9.0-photo-z",
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/south/sweep/9.0-photo-z"
+    ],
+    "lf_curve": null,
+    "r_mag_limit": 20.5,
+    "gr_max": null,
+    "maskbits_reject": 12290,
+    "random_globs": [
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/north/randoms/randoms-north-1-*.fits",
+      "/global/cfs/cdirs/cosmo/data/legacysurvey/dr9/south/randoms/randoms-south-1-*.fits"
+    ],
+    "random_measure_column": "AREA_DEG2",
+    "input_selection_confirmed": true
+  },
+  "bgs": {
+    "data_globs": ["/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSScats/v2.1/BGS_BRIGHT_full.dat.fits"],
+    "redshift_column": "Z_not4clus",
+    "quality_column": "ZWARN",
+    "quality_values": [99, 999999],
+    "quality_mode": "exclude",
+    "additional_weight_column": null,
+    "pi_half_hmpc": 60.0,
+    "lf_curve": null,
+    "nbar_curve": null,
+    "random_globs": ["/global/cfs/cdirs/desi/survey/catalogs/DA2/LSS/loa-v1/LSScats/v2.1/BGS_BRIGHT_*_full.ran.fits"],
+    "random_mode": "angular",
+    "random_density_per_realization": 2500,
+    "random_measure_column": "AREA_DEG2",
+    "input_selection_confirmed": true
+  }
+}

@@ -1,0 +1,5 @@
+numpy
+scipy
+astropy
+mpi4py
+pytest
