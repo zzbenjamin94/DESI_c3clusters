@@ -1,4 +1,4 @@
-"""Plot saved DR9 environments versus richness; no measurement recomputation.
+"""Plot saved DR9 or BGS environments versus richness; no measurement recomputation.
 
 Cluster-pair bootstrap intervals are exploratory: they ignore spatial dependence.
 SEM bars describe binned means, not the scatter of individual clusters.
@@ -716,6 +716,7 @@ def plot_pooled_environment_measurements(assignments, output, histogram_bins=15,
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--input', type=Path, default=ROOT/'local_overdensity/dr9_outputs/section4/dr9/environment.fits')
+    p.add_argument('--tracer', choices=('dr9', 'bgs'), default='dr9')
     p.add_argument('--output', type=Path, default=ROOT/'plots/environment_richness')
     p.add_argument('--bootstrap', type=int, default=1000)
     p.add_argument('--seed', type=int, default=42)
@@ -770,6 +771,20 @@ def main():
     t = Table.read(a.input)
     if len(np.unique(t['ID'])) != len(t):
         raise ValueError('Expected one row per cluster; duplicate IDs found')
+    if 'LAMBDA' not in t.colnames or not any(c in t.colnames for c in ('lambda_spec_noproj_weighted', 'lambda_spec_geo_comp_lf')):
+        with np.load(a.sample, allow_pickle=False) as sample:
+            ids = sample['ID'].astype(str)
+            if len(np.unique(ids)) != len(ids):
+                raise ValueError('Duplicate richness sample IDs')
+            lookup = {value: i for i, value in enumerate(ids)}
+            keep = np.array([str(value) in lookup for value in t['ID']])
+            print(f'Richness join: {keep.sum()}/{len(t)} environment clusters in prepared sample')
+            t = t[keep]
+            rows = np.array([lookup[str(value)] for value in t['ID']], dtype=int)
+            if not np.allclose(floats(t, 'Z_SPEC_central'), sample['z'][rows], atol=1e-8, rtol=1e-7):
+                raise ValueError('Cluster redshift mismatch between environment and richness sample')
+            t['LAMBDA'] = sample['lambda_rm'][rows]
+            t['lambda_spec_geo_comp_lf'] = sample['lambda_spec'][rows]
     # This stage column is the catalog builder's source for noproj_weighted.
     spec_col = 'lambda_spec_noproj_weighted' if 'lambda_spec_noproj_weighted' in t.colnames else 'lambda_spec_geo_comp_lf'
     if spec_col not in t.colnames:
@@ -779,15 +794,15 @@ def main():
     a.output.mkdir(parents=True, exist_ok=True)
     plt.rcParams.update({'font.family':'serif', 'mathtext.fontset':'stix', 'font.size':12})
     records, bin_records = [], []
-    for filt in ('box', 'gaussian'):
+    for filt in (('box', 'gaussian') if a.tracer == 'dr9' else ('box',)):
         for metric in ('excess', 'E_local'):
-            prefix = f'dr9_{filt}'
+            prefix = f'{a.tracer}_{filt}'
             ycol = f'{prefix}_{metric}'
             y = floats(t, ycol)
             flag = f'{prefix}_valid' if metric == 'excess' else f'{prefix}_E_local_valid'
             valid = np.ma.asarray(t[flag], dtype=bool).filled(False) & np.isfinite(z) & np.isfinite(y)
             if a.coverage_min is not None:
-                valid &= (floats(t,f'{prefix}_coverage') >= a.coverage_min) & (floats(t,'dr9_background_coverage') >= a.coverage_min)
+                valid &= (floats(t,f'{prefix}_coverage') >= a.coverage_min) & (floats(t,f'{a.tracer}_background_coverage') >= a.coverage_min)
             fig, axes = plt.subplots(1,2,figsize=(13,5),layout='constrained')
             for ax, xcol, label in zip(axes, ('LAMBDA',spec_col), (r'$\lambda_{\rm RM}$',r'$\lambda_{\rm spec}$')):
                 x = floats(t,xcol)
@@ -812,19 +827,21 @@ def main():
                     handles.append(Line2D([],[],marker='o',linestyle='none',color=color,mfc='white',label=text))
                 ax.set_xscale('log')
                 ax.set_xlabel(label,fontsize=16)
-                ax.set_ylabel(r'$\Sigma_{\rm excess}$ [$h^2\,\mathrm{Mpc}^{-2}$]' if metric=='excess' else r'$E_{\rm local}$',fontsize=16)
+                excess_label = (r'$\Sigma_{\rm excess}$ [$h^2\,\mathrm{Mpc}^{-2}$]' if a.tracer == 'dr9'
+                                else r'$n_{\rm excess}$ [$h^3\,\mathrm{Mpc}^{-3}$]')
+                ax.set_ylabel(excess_label if metric=='excess' else r'$E_{\rm local}$',fontsize=16)
                 ax.axhline(0,color='0.5',lw=.8)
                 ax.grid(False)
                 ax.minorticks_on()
                 ax.tick_params(which='both',direction='in',top=True,right=True)
                 ax.legend(handles=handles,loc='upper right',frameon=False,fontsize=9)
             for ext in ('png','pdf'):
-                fig.savefig(a.output/f'dr9_{filt}_{metric}_richness.{ext}',dpi=200)
+                fig.savefig(a.output/f'{a.tracer}_{filt}_{metric}_richness.{ext}',dpi=200)
             plt.close(fig)
     pd.DataFrame(records).to_csv(a.output/'spearman_summary.csv',index=False)
     pd.DataFrame(bin_records).to_csv(a.output/'binned_means_sem.csv',index=False)
     (a.output/'settings.json').write_text(json.dumps(dict(input=str(a.input.resolve()),spec_column=spec_col,
-        z_edges=Z_EDGES,bootstrap=a.bootstrap,seed=a.seed,min_count=a.min_count,max_bins=a.max_bins,
+        tracer=a.tracer,sample=str(a.sample.resolve()),z_edges=Z_EDGES,bootstrap=a.bootstrap,seed=a.seed,min_count=a.min_count,max_bins=a.max_bins,
         coverage_min=a.coverage_min,errors='Linear-space SEM; cluster-pair bootstrap 16-84% intervals; spatial correlations ignored'),indent=2))
     print('Saved:',a.output)
 
