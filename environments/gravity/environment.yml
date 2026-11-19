@@ -1,0 +1,29 @@
+# Curated DESI baseline from the 2026-10-16 NERSC export, not a full clone.
+name: desi-gravity
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.9
+  - pip
+  - numpy=1.26.0
+  - scipy=1.11.3
+  - pandas=2.1.1
+  - astropy=5.3.4
+  - matplotlib=3.8.0
+  - h5py=3.10.0
+  - healpy=1.16.6
+  - ipykernel=6.25.0
+  - ipython=8.15.0
+  - jupyterlab>=4,<5
+  - notebook>=7,<8
+  - pyyaml=6.0.1
+  - pytest=8.3.1
+  - tqdm=4.66.1
+  - seaborn=0.13.0
+  - pip:
+      - emcee==3.1.4
+      - corner==2.2.2
+      - pygtc==0.5.0
+      - schwimmbad==0.4.2
+      - multiprocess==0.70.19
