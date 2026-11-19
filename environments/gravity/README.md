@@ -41,11 +41,12 @@ provide package versions; `environment-portable.yml` alone is incomplete.
 The exports contain inaccessible conda build paths and NERSC MPI libraries,
 so neither the raw pip freeze nor Linux explicit file is installed directly.
 
-This is a curated Python 3.9 baseline for richness fitting, environment
+This is a curated Python 3.11 baseline for richness fitting, environment
 estimation, plotting and Jupyter, not a byte-for-byte recreation of the large
-NERSC environment. Core scientific versions follow the export; Python patch,
-Jupyter and transitive dependencies are resolved on Gravity. Python 3.9 is
-retained for compatibility, not as a recommendation for new projects.
+NERSC environment. Python is upgraded from NERSC's 3.9 to 3.11 at the user's
+request. Core scientific versions follow the export; Python patch, Jupyter
+and transitive dependencies are resolved on Gravity. This deliberately targets
+3.11 rather than the newest Python release to limit scientific-package changes.
 Specialist packages such as pyccl, dsigma, pymaster, pymultinest, specutils,
 linetools, GCR and JAX are not installed by this baseline. Add them separately
 when resuming those projects, after checking their native-library requirements.
