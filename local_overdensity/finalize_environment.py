@@ -31,7 +31,7 @@ def finalize(clusters, stats, config, tracer):
             valid = np.isfinite(excess) & (stats[:, k, 4] > 0) & (stats[:, 2, 4] > 0)
             out[f"{prefix}_valid"] = valid
             out[f"{prefix}_E_local_valid"] = valid & (density[:, 2] > 0)
-            if tracer == "bgs":
+            if tracer == "bgs" and config["bgs"].get("nbar_curve"):
                 nbar = curve(config["bgs"]["nbar_curve"], np.asarray(out["Z_SPEC_central"]), "NBAR")
                 out[f"{prefix}_E_global"] = density[:, k]/nbar - 1
     out.meta["TRACER"] = tracer
