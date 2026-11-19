@@ -10,9 +10,9 @@ The intended output is a broad parent galaxy-level table with one row per unique
 redMaPPer-cluster/BGS-galaxy pair.  The table contains BGS columns,
 redMaPPer cluster columns, optional redMaPPer member-galaxy columns, a central
 flag, projected radius, geometric coverage fraction, and explicit weight
-columns. Scientific redshift and normalized-offset cuts, and the resulting
-spectroscopic-richness columns, are added by the postprocessing script rather
-than at this matching stage.
+columns and all three spectroscopic-richness weighting stages. Scientific
+cuts select candidates for the richness calculation only: no rows are
+removed from the broad parent table. No later richness postprocessing is needed.
 
 Weight convention:
 
@@ -36,6 +36,8 @@ Edit the configuration block below before running on NERSC.
 from __future__ import annotations
 
 import pickle
+import json
+import sys
 from pathlib import Path
 import warnings
 
@@ -62,6 +64,10 @@ except ImportError:
 REPO_ROOT = Path("/global/homes/z/zzhang13/DESI/Projection")
 if not REPO_ROOT.exists():
     REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from make_catalogs.spectroscopic_richness import append_richness_to_matched
 
 CATALOG_DIR = REPO_ROOT / "catalogs"
 OUTPUT_DIR = CATALOG_DIR
@@ -73,6 +79,7 @@ RANDOM_DIR = BGS_LSSCAT_DIR
 
 OUTPUT_PICKLE = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.pickle"
 OUTPUT_FITS = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights.fits"
+OUTPUT_RICHNESS_AUDIT = OUTPUT_DIR / "bgs_clus_RM_gal_matched_with_weights_richness_audit.json"
 LF_SUMMARY_CSV = CATALOG_DIR / "bgs_direct_lf_logL_global_vmax_schechter_fit_summary.csv"
 
 PROJECTED_APERTURE_HMPC = 1.5
@@ -93,7 +100,7 @@ N_KDTREE_WORKERS = 1
 ADD_LF_WEIGHT_COLUMNS = True
 
 R_MAG_LIMIT = 19.5
-REFERENCE_Z = 0.1
+REFERENCE_LSTAR_FRACTION = 0.2  # BGS r-band proxy, not a converted RM i-band threshold.
 LOG_L_MIN_FIT = 9.0
 M_SUN_R_AB = 4.64
 
@@ -316,10 +323,21 @@ def load_bgs_catalog(path: Path = BGS_CATALOG):
 
     if "PROB_OBS" not in bgs.colnames:
         raise KeyError("DR2 BGS catalog must contain PROB_OBS.")
-    prob_obs = np.asarray(bgs["PROB_OBS"], dtype=float)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        comp_weight = 1.0 / prob_obs
-    comp_weight[~np.isfinite(comp_weight) | (comp_weight <= 0)] = 0.0
+    prob_obs = np.ma.asarray(bgs["PROB_OBS"], dtype=float).filled(np.nan)
+    valid_prob = np.isfinite(prob_obs) & (prob_obs > 0) & (prob_obs <= 1)
+    print(
+        f"BGS probability selection: retaining {valid_prob.sum():,}/{len(bgs):,} rows; "
+        f"excluding {(~valid_prob).sum():,} rows with invalid PROB_OBS "
+        "(require finite 0 < PROB_OBS <= 1)"
+    )
+    if not np.any(valid_prob):
+        raise ValueError("No BGS rows have valid PROB_OBS; cannot perform matching.")
+    # Exclude ineligible galaxies before pairing, not entire clusters.
+    bgs = bgs[valid_prob]
+    with np.errstate(over="ignore"):
+        comp_weight = 1.0 / prob_obs[valid_prob]
+    if not np.all(np.isfinite(comp_weight)):
+        raise ValueError("Valid PROB_OBS produced nonfinite inverse weights; inspect tiny probabilities.")
     bgs["COMP_WEIGHT"] = comp_weight
 
     required_keep_cols = [
@@ -464,8 +482,8 @@ def lf_observed_fraction_logL(logL_lim, logL_ref, logL_star, alpha):
     """
     Fraction of the reference LF observable above a redshift-dependent limit.
 
-    If the survey is deeper than the reference limit, the numerator is evaluated
-    at the reference limit, so the observable fraction is capped at 1.
+    This abundance ratio may exceed one when the survey is deeper than the
+    reference threshold; its inverse then downweights the observed counts.
     """
     logL_lim = np.asarray(logL_lim, dtype=float)
     frac = np.full(len(logL_lim), np.nan, dtype=float)
@@ -473,13 +491,13 @@ def lf_observed_fraction_logL(logL_lim, logL_ref, logL_star, alpha):
     if denom <= 0 or not np.isfinite(denom):
         return frac
 
-    logL_lim_eff = np.maximum(logL_lim, logL_ref)
+    logL_lim_eff = logL_lim
     for i, ell in enumerate(logL_lim_eff):
         if not np.isfinite(ell):
             continue
         frac[i] = integrate_schechter_logL_from(ell, logL_star, alpha) / denom
 
-    return np.clip(frac, 0.0, 1.0)
+    return frac
 
 
 def add_lf_weight_columns(table: Table, lf_summary_csv: Path = LF_SUMMARY_CSV) -> Table:
@@ -510,8 +528,7 @@ def add_lf_weight_columns(table: Table, lf_summary_csv: Path = LF_SUMMARY_CSV) -
     z_cluster = np.asarray(cluster_table[z_central_col], dtype=float)
 
     logL_lim = magnitude_limit_to_logL(z_cluster, R_MAG_LIMIT)
-    logL_ref_raw = magnitude_limit_to_logL(REFERENCE_Z, R_MAG_LIMIT)
-    logL_ref = max(float(logL_ref_raw), LOG_L_MIN_FIT)
+    logL_ref = lf_params["log10_L_star"] + np.log10(REFERENCE_LSTAR_FRACTION)
 
     obs_frac = lf_observed_fraction_logL(
         logL_lim,
@@ -523,7 +540,6 @@ def add_lf_weight_columns(table: Table, lf_summary_csv: Path = LF_SUMMARY_CSV) -
     with np.errstate(divide="ignore", invalid="ignore"):
         lf_weight = 1.0 / obs_frac
     lf_weight[~np.isfinite(lf_weight)] = np.nan
-    lf_weight = np.maximum(lf_weight, 1.0)
 
     lf_table = Table()
     lf_table["ID"] = np.asarray(cluster_table["ID"])
@@ -851,9 +867,15 @@ def main() -> int:
             "LF_WEIGHT percentiles: "
             f"{np.nanpercentile(np.asarray(bgs_matched['LF_WEIGHT'], dtype=float), [0, 16, 50, 84, 100])}"
         )
+        print("Computing continuum and unweighted / geometry+completeness / LF richness stages")
+        bgs_matched, richness_audit = append_richness_to_matched(
+            bgs_matched, OUTPUT_DIR / "weight_diagnostics",
+        )
         with OUTPUT_PICKLE.open("wb") as handle:
             pickle.dump(bgs_matched, handle, protocol=pickle.HIGHEST_PROTOCOL)
         bgs_matched.write(OUTPUT_FITS, overwrite=True)
+        OUTPUT_RICHNESS_AUDIT.write_text(json.dumps(richness_audit, indent=2, allow_nan=False) + "\n")
+        print(f"Saved continuum and richness audit: {OUTPUT_RICHNESS_AUDIT}")
         print(f"Saved broad parent matched catalog: {OUTPUT_PICKLE}")
         print(f"Saved broad parent matched catalog: {OUTPUT_FITS}")
 

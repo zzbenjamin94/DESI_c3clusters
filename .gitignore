@@ -1,0 +1,9 @@
+# Generated catalogs and figures
+/catalogs/
+/plots/
+.DS_Store
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+/local_overdensity/*outputs/
+/local_overdensity/bgs_env_output/
